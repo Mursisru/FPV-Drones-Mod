@@ -1,6 +1,8 @@
 using BepInEx;
 using BepInEx.Logging;
 using FPVMod.Control;
+using FPVMod.Effects;
+using FPVMod.FpvView;
 
 namespace FPVMod
 {
@@ -16,8 +18,11 @@ namespace FPVMod
         {
             ModLogger = Logger;
             FpvConfig.Bind(Config);
+            FpvShaderBundle.EnsureLoaded();
+            FpvFeedDriverHost.Ensure();
             FpvHost.Ensure(ModLogger);
-            ModLogger.LogInfo($"{PluginName} {AppVersion.DisplayVersion} loaded.");
+            ModLogger.LogInfo(
+                $"{PluginName} {AppVersion.DisplayVersion} loaded. IR blit={(FpvInfraredBlit.IsAvailable ? "ok" : "MISSING")}");
         }
     }
 }

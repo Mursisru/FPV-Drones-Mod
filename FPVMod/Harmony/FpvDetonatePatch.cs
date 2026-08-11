@@ -31,14 +31,14 @@ namespace FPVMod.HarmonyPatches
 
             try
             {
-                __instance.SetTarget(null);
                 __instance.Networkdisabled = true;
 
                 Vector3 dronePos = __instance.rb != null
                     ? __instance.rb.position
                     : __instance.transform.position;
 
-                if (!FpvBoomPending.TryPeek(__instance, out Vector3 world, out Vector3 droneAtHit))
+                Unit? relative = null;
+                if (!FpvBoomPending.TryPeek(__instance, out Vector3 world, out Vector3 droneAtHit, out relative))
                 {
                     world = dronePos;
                     FpvPlugin.ModLogger?.LogError(
@@ -49,21 +49,37 @@ namespace FPVMod.HarmonyPatches
                     if (droneAtHit.sqrMagnitude > 1f)
                         dronePos = droneAtHit;
                     world = SanitizeBoomWorld(world, dronePos, "Safe");
-                    FpvBoomPending.Set(__instance, world, dronePos);
+                    FpvBoomPending.Set(__instance, world, dronePos, relative);
+                }
+
+                // Relative Rpc only when we actually hit that unit (pending) — same idea as missile.target.
+                if (relative == null || relative.disabled)
+                {
+                    // keep absolute
                 }
 
                 SnapMissile(__instance, world);
 
-                Vector3 global = world.ToGlobalPosition().AsVector3();
-                Vector3 datum = Datum.origin != null ? Datum.origin.position : Vector3.zero;
                 bool armed = __instance.IsArmed();
                 if (normal.sqrMagnitude < 1e-6f)
                     normal = Vector3.up;
 
-                FpvPlugin.ModLogger?.LogInfo(
-                    $"FPV boom Safe: world={world} drone={dronePos} global={global} datum={datum} decodedCheck={global + datum} armed={armed}");
-
-                __instance.RpcDetonate(null, false, global, armed, hitArmor, hitTerrain, normal);
+                if (relative != null && !relative.disabled)
+                {
+                    Vector3 local = relative.transform.InverseTransformPoint(world);
+                    FpvPlugin.ModLogger?.LogInfo(
+                        $"FPV boom Safe: relative={relative.unitName} world={world} local={local} armed={armed}");
+                    try { __instance.SetTarget(null); } catch { /* ignore */ }
+                    __instance.RpcDetonate(relative, true, local, armed, hitArmor, hitTerrain, normal);
+                }
+                else
+                {
+                    Vector3 global = world.ToGlobalPosition().AsVector3();
+                    FpvPlugin.ModLogger?.LogInfo(
+                        $"FPV boom Safe: absolute world={world} global={global} armed={armed}");
+                    try { __instance.SetTarget(null); } catch { /* ignore */ }
+                    __instance.RpcDetonate(null, false, global, armed, hitArmor, hitTerrain, normal);
+                }
 
                 object? task = DelayedDestroyMethod?.Invoke(__instance, new object[] { 2f });
                 TryForget(task);
@@ -103,7 +119,7 @@ namespace FPVMod.HarmonyPatches
             return dronePos;
         }
 
-        private static void TryForget(object? uniTask)
+        internal static void ForgetUniTask(object? uniTask)
         {
             if (uniTask == null)
                 return;
@@ -129,11 +145,14 @@ namespace FPVMod.HarmonyPatches
                 // ignore
             }
         }
+
+        private static void TryForget(object? uniTask) => ForgetUniTask(uniTask);
     }
 
     /// <summary>
-    /// Full FPV RpcDetonate body: forced world from pending → snap + FX + BlastFrag.
-    /// Never uses relativeUnit / blind pos+Datum when pending exists.
+    /// FPV RpcDetonate: forced world from pending for FX.
+    /// Damage = DamageEffects.BlastFrag same frame (vanilla formula).
+    /// Do NOT defer via ExplosionForceOnPhysicsFrame — Datum jumps and blast misses units.
     /// </summary>
     internal static class FpvRpcDetonateReplacePatch
     {
@@ -165,9 +184,9 @@ namespace FPVMod.HarmonyPatches
             if (__instance == null)
                 return true;
 
-            // Stamp clients that never got server-side components.
-            if (DefinitionRegistrar.IsFpvMissile(__instance) ||
-                DefinitionRegistrar.IsFpvDrone(__instance.definition))
+            if (__instance.GetComponent<FpvDroneTag>() == null &&
+                (DefinitionRegistrar.IsFpvMissile(__instance) ||
+                 DefinitionRegistrar.IsFpvDrone(__instance.definition)))
             {
                 PrefabFactory.StampDroneInstance(__instance.gameObject);
             }
@@ -178,12 +197,16 @@ namespace FPVMod.HarmonyPatches
             try
             {
                 Vector3 datum = Datum.origin != null ? Datum.origin.position : Vector3.zero;
-                Vector3 decoded = pos + datum;
+                Vector3 decoded = useUnit && relativeUnit != null
+                    ? relativeUnit.transform.TransformPoint(pos)
+                    : pos + datum;
+
                 Vector3 dronePos = __instance.rb != null
                     ? __instance.rb.position
                     : __instance.transform.position;
 
-                bool fromPending = FpvBoomPending.TryConsume(__instance, out Vector3 world, out Vector3 droneAtHit);
+                bool fromPending = FpvBoomPending.TryConsume(
+                    __instance, out Vector3 world, out Vector3 droneAtHit, out Unit? pendingRel);
                 if (droneAtHit.sqrMagnitude > 1f)
                     dronePos = droneAtHit;
                 else if (dronePos.sqrMagnitude < 1e-4f && __instance.transform.position.sqrMagnitude > 1f)
@@ -193,15 +216,18 @@ namespace FPVMod.HarmonyPatches
                 {
                     world = FpvDetonateSafePatch.SanitizeBoomWorld(decoded, dronePos, "RpcDecoded");
                     FpvPlugin.ModLogger?.LogWarning(
-                        $"FPV boom Rpc: no pending — using world={world} (relativeIgnored={relativeUnit != null})");
+                        $"FPV boom Rpc: no pending — world={world} relative={relativeUnit != null}");
                 }
                 else
                 {
+                    // Keep impact world from pending (do not reparent onto a unit transform).
                     world = FpvDetonateSafePatch.SanitizeBoomWorld(world, dronePos, "RpcPending");
                 }
 
+                Unit? rel = relativeUnit != null ? relativeUnit : pendingRel;
+
                 FpvPlugin.ModLogger?.LogInfo(
-                    $"FPV boom Rpc: pending={fromPending} world={world} drone={dronePos} decoded={decoded} datum={datum} pos={pos} armed={armed}");
+                    $"FPV boom Rpc: pending={fromPending} world={world} rel={rel?.unitName} armed={armed}");
 
                 RunMotorDestruct(__instance);
                 DetachEffects(__instance);
@@ -221,9 +247,16 @@ namespace FPVMod.HarmonyPatches
                 FpvBoomFx.MarkDetonated(__instance);
 
                 if (armed && yield <= 200f)
-                    DamageEffects.BlastFrag(yield, world, __instance.ownerID, __instance.persistentID);
-
-                FpvPlugin.ModLogger?.LogInfo($"FPV boom Rpc: BlastFrag+FX at world={world} yield={yield}");
+                {
+                    FpvBlastDamage.Apply(
+                        yield,
+                        world,
+                        normal,
+                        __instance.ownerID,
+                        __instance.persistentID,
+                        rel,
+                        __instance);
+                }
             }
             catch (Exception ex)
             {

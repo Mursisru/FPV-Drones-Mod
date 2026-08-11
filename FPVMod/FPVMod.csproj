@@ -10,6 +10,12 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="Resources\fpvmod_assets" Condition="Exists('Resources\fpvmod_assets')" />
+    <EmbeddedResource Include="Resources\fpv_shaders.bundle" Condition="Exists('Resources\fpv_shaders.bundle')">
+      <LogicalName>FPVMod.Shaders.fpv_shaders.bundle</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources\fpv_unit_icon.png" Condition="Exists('Resources\fpv_unit_icon.png')">
+      <LogicalName>FPVMod.Resources.fpv_unit_icon.png</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
     <Reference Include="0Harmony">
@@ -34,6 +40,14 @@
     </Reference>
     <Reference Include="Rewired_Core">
       <HintPath>$(NuclearOptionRoot)\NuclearOption_Data\Managed\Rewired_Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.RenderPipelines.Core.Runtime">
+      <HintPath>$(NuclearOptionRoot)\NuclearOption_Data\Managed\Unity.RenderPipelines.Core.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.RenderPipelines.Universal.Runtime">
+      <HintPath>$(NuclearOptionRoot)\NuclearOption_Data\Managed\Unity.RenderPipelines.Universal.Runtime.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine">

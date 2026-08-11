@@ -213,9 +213,8 @@ namespace FPVMod.HarmonyPatches
             if (ctrl == null)
                 return true;
 
-            if (FpvControlSession.IsControlling(__instance) || __instance.LocalSim)
-                ctrl.ApplyFlight(__instance);
-
+            // Always FPV physics/impact on host sim; sticks only when session owns this missile.
+            ctrl.ApplyFlight(__instance);
             return false;
         }
     }

@@ -1,6 +1,6 @@
 # FPV Drones Mod
 
-![Version](https://img.shields.io/badge/version-2.0.0-blue)
+![Version](https://img.shields.io/badge/version-2.2.0-blue)
 ![BepInEx](https://img.shields.io/badge/BepInEx-5.x-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
@@ -12,7 +12,8 @@ BepInEx mod for **Nuclear Option** that adds a mobile FPV drone launcher and man
 ## Features
 
 - **MSV Drone Launcher** — MLRS chassis with 8-drone capacity and map-based launch UI
-- **FPV Kamikaze Drone** — acro flight control, 5-minute battery, 25 kg warhead
+- **FPV Kamikaze Drone** — acro flight control, 5-minute battery, warhead with impact fuse
+- **Owned fullscreen FS** — Gunship HUD, LookAround, zoom, vision modes (WH/NVG/…) without MissileCamera
 - **Virtual possession** — control drones without hijacking the player aircraft slot
 - **Link quality** — range, line-of-sight, and jamming affect control latency and OSD static
 - **Economy** — "FPV Strike Package" convoy group ($900k)
@@ -24,7 +25,7 @@ BepInEx mod for **Nuclear Option** that adds a mobile FPV drone launcher and man
    ```
    Nuclear Option/BepInEx/plugins/FPVMod.dll
    ```
-3. Launch the game. Check `BepInEx/LogOutput.log` for `FPV Drones Mod 2.0.0 loaded.`
+3. Launch the game. Check `BepInEx/LogOutput.log` for `FPV Drones Mod 2.2.0 loaded.`
 
 ## Usage
 
@@ -32,6 +33,7 @@ BepInEx mod for **Nuclear Option** that adds a mobile FPV drone launcher and man
 2. Click the launcher on the strategic map.
 3. Press **LAUNCH FPV** in the bottom panel.
 4. Fly with standard aircraft controls while the link is active.
+5. **J** cycles vision modes (default WhiteHot). Hold **RMB** to free-look; mouse wheel zooms.
 
 ## Building from Source
 

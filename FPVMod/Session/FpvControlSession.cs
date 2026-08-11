@@ -25,6 +25,7 @@ namespace FPVMod.Session
         {
             if (drone == null || launcher == null)
                 return;
+
             End();
 
             Drone = drone;
@@ -32,6 +33,7 @@ namespace FPVMod.Session
             Active = true;
             _endAfterUnscaled = -1f;
             FpvInputBridge.ResetSession();
+            EnsureFlightControls();
 
             FpvDroneTag? tag = drone.GetComponent<FpvDroneTag>();
             if (tag != null)
@@ -44,9 +46,13 @@ namespace FPVMod.Session
 
             FpvCameraRig.Attach(drone);
             FpvOsdCanvas.Show();
+            EnsureFlightControls();
 
             FpvAcroController? acro = drone.GetComponent<FpvAcroController>();
             acro?.BoostLaunch(0.4f);
+
+            FpvPlugin.ModLogger?.LogInfo(
+                $"FPV session Begin drone={drone.persistentID} localSim={drone.LocalSim} fc={GameManager.flightControlsEnabled}");
         }
 
         internal static void End()
@@ -81,10 +87,11 @@ namespace FPVMod.Session
 
             if (Drone.disabled)
             {
-                // Keep FPV cam on impact briefly — damage/FX already forced to hit world.
                 _endAfterUnscaled = Time.unscaledTime + EndDelaySec;
                 return;
             }
+
+            EnsureFlightControls();
 
             FpvOsdCanvas.TickPauseUi();
             FpvFeedCamera.TickPauseUi();
@@ -106,6 +113,20 @@ namespace FPVMod.Session
 
             if (Drone.GetComponent<FpvAcroController>() is { Battery01: var b } && b <= 0f)
                 End();
+        }
+
+        /// <summary>MC FS reset after boom often leaves this false — next drone can't fly.</summary>
+        internal static void EnsureFlightControls()
+        {
+            try
+            {
+                if (!GameManager.flightControlsEnabled)
+                    GameManager.flightControlsEnabled = true;
+            }
+            catch
+            {
+                // ignore
+            }
         }
     }
 }

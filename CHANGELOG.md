@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.2.0] — 2026-08-11
+
+### Added
+
+- Owned fullscreen Gunship FS (no MissileCamera.dll dependency): COD HUD, LookAround, optical zoom
+- Vision cycle **J**: Color / NVG / WhiteHot / BlackHot / EDGE± (default WhiteHot)
+- Embedded shader bundle + InfraredBlit, NVG Volume, MC-parity RenderPrep (TargetCam URP mirror, terrain window, DetailRenderer)
+- EOF feed driver, unit marker layer, direct blast damage path for kamikaze hits
+
+### Changed
+
+- Removed MissileCamera bridge/Harmony patches; FPV owns the full FS stack
+- PostFx defaults match MC (CRT UI overlay on; bloom/chromatic/motion-blur blit off)
+
+### Fixed
+
+- Infrared vision overwritten by double URP Base pass; Overlay idle + one manual Render
+- Boom impact FX/damage at Datum/spectator and soft-lock after detonation
+
 ## [2.1.1] — 2026-08-11
 
 ### Fixed

@@ -59,7 +59,7 @@ namespace FPVMod.Drone
             _armed = true;
             try
             {
-                _missile.Arm(); // sets warhead.Armed via game API
+                _missile.Arm();
                 _missile.SetTangible(true);
             }
             catch
@@ -67,6 +67,11 @@ namespace FPVMod.Drone
                 // ignore
             }
             SetImpactFuse(true);
+
+            // Instant boom if already inside/near a unit the frame we arm.
+            Rigidbody? rb = _missile.rb != null ? _missile.rb : GetComponent<Rigidbody>();
+            if (rb != null)
+                FpvImpactResolver.Resolve(_missile, rb, true);
         }
 
         private bool IsClearOfLauncher()

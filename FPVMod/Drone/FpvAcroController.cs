@@ -102,7 +102,10 @@ namespace FPVMod.Drone
         {
             if (_missile == null || _rb == null || missile.disabled)
                 return;
-            if (!FpvControlSession.IsControlling(missile) && !missile.LocalSim)
+
+            bool controlling = FpvControlSession.IsControlling(missile);
+            // Pure clients: only the possessed drone; host LocalSim owns all FPV missiles.
+            if (!controlling && !missile.LocalSim)
                 return;
 
             FpvMotorKill.KillAll(missile);
@@ -110,14 +113,16 @@ namespace FPVMod.Drone
 
             _rb.AddForce(Vector3.down * G, ForceMode.Acceleration);
 
+            bool armed = _warhead == null || !_warhead.IsSafe;
             float spd = _rb.velocity.magnitude;
             float cdNow = Cd;
 
-            if (FpvUiGate.BlocksFlightInput)
+            // Unpossessed / pause: motors off + still resolve ground/unit boom.
+            if (!controlling || FpvUiGate.BlocksFlightInput)
             {
                 Collective01 = 0f;
                 FpvVanillaAero.ApplyDrag(_rb, transform, Cd * IdleCdMul, _refAreaM2);
-                FpvImpactResolver.Resolve(missile, _rb, _warhead == null || !_warhead.IsSafe);
+                FpvImpactResolver.Resolve(missile, _rb, armed);
                 return;
             }
 
@@ -177,7 +182,6 @@ namespace FPVMod.Drone
             FpvMissileAccess.SetThrottle(missile, collective);
             FpvMissileAccess.CallUpdateRadarAlt(missile);
 
-            bool armed = _warhead == null || !_warhead.IsSafe;
             FpvImpactResolver.Resolve(missile, _rb, armed);
         }
 

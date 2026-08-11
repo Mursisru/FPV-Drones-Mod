@@ -64,6 +64,7 @@ namespace FPVMod.Bootstrap
 
             ApplyDroneVisuals(go);
             EnsureRigidbody(go, FpvConstants.DroneMassKg);
+            EnsureHitCollider(go);
             FpvMotorKill.KillAll(missile);
 
             go.hideFlags = HideFlags.None;
@@ -174,9 +175,41 @@ namespace FPVMod.Bootstrap
             if (rb == null)
                 rb = root.AddComponent<Rigidbody>();
             rb.mass = mass;
-            rb.useGravity = true;
+            // Acro BindRb owns gravity; Unity gravity here = dead fall if SFU skipped.
+            rb.useGravity = false;
             rb.drag = 0f;
             rb.angularDrag = 0.15f;
+            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+        }
+
+        /// <summary>Guaranteed solid hit volume so PhysX contacts fire on moving vehicles.</summary>
+        private static void EnsureHitCollider(GameObject root)
+        {
+            if (root == null)
+                return;
+
+            Transform? vis = root.transform.Find("FPV_Visual");
+            bool hasSolid = false;
+            foreach (Collider c in root.GetComponentsInChildren<Collider>(true))
+            {
+                if (c == null || c.isTrigger)
+                    continue;
+                if (vis != null && c.transform.IsChildOf(vis))
+                    continue;
+                hasSolid = true;
+                break;
+            }
+
+            if (hasSolid)
+                return;
+
+            SphereCollider? sphere = root.GetComponent<SphereCollider>();
+            if (sphere == null)
+                sphere = root.AddComponent<SphereCollider>();
+            sphere.isTrigger = false;
+            sphere.radius = 0.55f;
+            sphere.center = Vector3.zero;
+            FpvPlugin.ModLogger?.LogInfo("StampDrone: added SphereCollider for unit contacts.");
         }
     }
 }

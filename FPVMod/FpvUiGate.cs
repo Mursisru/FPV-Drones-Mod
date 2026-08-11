@@ -11,12 +11,18 @@ namespace FPVMod
             {
                 try
                 {
-                    if (GameplayUI.GameIsPaused)
+                    if (GameplayUI.GameIsPaused || Time.timeScale < 0.01f)
                         return true;
-                    if (!GameManager.flightControlsEnabled)
-                        return true;
+
+                    // During FPV: only real pause. MC reset often leaves menuCanvas on /
+                    // flightControlsEnabled=false — that must NOT freeze the next drone.
+                    if (Session.FpvControlSession.Active)
+                        return false;
+
                     var ui = SceneSingleton<GameplayUI>.i;
                     if (ui != null && ui.menuCanvas != null && ui.menuCanvas.enabled)
+                        return true;
+                    if (!GameManager.flightControlsEnabled)
                         return true;
                 }
                 catch
@@ -24,7 +30,7 @@ namespace FPVMod
                     // ignore
                 }
 
-                return Time.timeScale < 0.01f;
+                return false;
             }
         }
 

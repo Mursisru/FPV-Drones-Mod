@@ -1,5 +1,6 @@
 using BepInEx.Logging;
 using FPVMod.Bootstrap;
+using FPVMod.Drone;
 using FPVMod.FpvView;
 using FPVMod.Economy;
 using FPVMod.HarmonyPatches;
@@ -64,8 +65,6 @@ namespace FPVMod.Control
 
             SceneManager.sceneUnloaded += _ => OnSceneReset();
             FpvNetworkHub.EnsureHandlers();
-            FpvMissileCameraAcroPatches.TryPatch(_harmony!);
-            FpvMissileCameraHudPatches.TryPatch(_harmony!);
         }
 
         private void Update()
@@ -76,11 +75,7 @@ namespace FPVMod.Control
             FpvNetworkHub.EnsureHandlers();
             FpvLobbyGate.Tick();
             if (_harmony != null)
-            {
                 FpvBoomPatches.Ensure(_harmony);
-                FpvMissileCameraAcroPatches.TryPatch(_harmony);
-                FpvMissileCameraHudPatches.TryPatch(_harmony);
-            }
 
             if (Time.unscaledTime >= _nextBootstrap)
             {
@@ -91,8 +86,7 @@ namespace FPVMod.Control
 
             FpvControlSession.Tick();
             FpvInputRpc.Tick();
-            FpvOsdCanvas.RefreshTelemetry();
-            FpvCameraRig.LateTick();
+            // FS render is FpvFeedDriver WaitForEndOfFrame (MC parity) — not Update LateTick.
             FpvResupplyBridge.Tick();
 
             if (DynamicMap.mapMaximized)
@@ -122,6 +116,9 @@ namespace FPVMod.Control
             FpvEditorListRefresh.ResetFlag();
             FpvLauncherMapIcons.ClearAll();
             FpvLauncherSelectBridge.Clear();
+            FpvImpactResolver.ClearDetonateGuards();
+            FpvRenderPrep.ResetAll();
+            Effects.FpvShaderBundle.SoftReset();
             // Keep Encyclopedia Lookup defs + embedded bundle alive across scenes (RC pattern).
             DefinitionRegistrar.SoftReset();
         }
