@@ -59,6 +59,9 @@ namespace FPVMod.Control
                 }
             }
 
+            // Boom: manual Detonate + RpcDetonate replace (forced pending world + BlastFrag).
+            FpvBoomPatches.Ensure(_harmony);
+
             SceneManager.sceneUnloaded += _ => OnSceneReset();
             FpvNetworkHub.EnsureHandlers();
             FpvMissileCameraAcroPatches.TryPatch(_harmony!);
@@ -74,6 +77,7 @@ namespace FPVMod.Control
             FpvLobbyGate.Tick();
             if (_harmony != null)
             {
+                FpvBoomPatches.Ensure(_harmony);
                 FpvMissileCameraAcroPatches.TryPatch(_harmony);
                 FpvMissileCameraHudPatches.TryPatch(_harmony);
             }

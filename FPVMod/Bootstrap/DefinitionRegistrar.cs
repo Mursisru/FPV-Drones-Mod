@@ -160,6 +160,31 @@ namespace FPVMod.Bootstrap
         internal static bool IsFpvDroneUnit(Unit? unit) =>
             unit != null && (unit.GetComponent<Drone.FpvDroneTag>() != null || IsFpvDrone(unit.definition));
 
+        /// <summary>Tag, fuse, def key, or unitName — works on clients before/without stamp.</summary>
+        internal static bool IsFpvMissile(Missile? missile)
+        {
+            if (missile == null)
+                return false;
+            if (missile.GetComponent<Drone.FpvDroneTag>() != null)
+                return true;
+            if (missile.GetComponent<Drone.FpvWarhead>() != null)
+                return true;
+            if (IsFpvDrone(missile.definition))
+                return true;
+            try
+            {
+                string? name = missile.unitName;
+                if (!string.IsNullOrEmpty(name) &&
+                    name.IndexOf("FPV", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            catch
+            {
+                // ignore
+            }
+            return false;
+        }
+
         /// <summary>Soft reset — keep Lookup defs; only clear session flags.</summary>
         internal static void SoftReset()
         {

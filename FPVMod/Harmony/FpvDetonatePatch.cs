@@ -1,5 +1,7 @@
 using System;
 using System.Reflection;
+using FPVMod.Access;
+using FPVMod.Bootstrap;
 using FPVMod.Drone;
 using HarmonyLib;
 using UnityEngine;
@@ -7,18 +9,17 @@ using UnityEngine;
 namespace FPVMod.HarmonyPatches
 {
     /// <summary>
-    /// FPV boom: force global Rpc path + Instantate FX in world space (no Datum.origin parent).
-    /// Vanilla Instantate(prefab, Datum.origin) can PlayOnAwake particles at Datum before SetPosition.
+    /// FPV Detonate: absolute GlobalPosition Rpc from FpvBoomPending (never relative/target).
+    /// Registered manually via FpvBoomPatches — not PatchAll.
     /// </summary>
-    [HarmonyPatch(typeof(Missile), nameof(Missile.Detonate))]
     internal static class FpvDetonateSafePatch
     {
         private static readonly MethodInfo? DelayedDestroyMethod =
             typeof(Missile).GetMethod("DelayedDestroy", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private static bool Prefix(Missile __instance, Vector3 normal, bool hitArmor, bool hitTerrain)
+        internal static bool Prefix(Missile __instance, Vector3 normal, bool hitArmor, bool hitTerrain)
         {
-            if (__instance == null || __instance.GetComponent<FpvDroneTag>() == null)
+            if (__instance == null || !DefinitionRegistrar.IsFpvMissile(__instance))
                 return true;
 
             FpvWarhead? fuse = __instance.GetComponent<FpvWarhead>();
@@ -30,19 +31,38 @@ namespace FPVMod.HarmonyPatches
 
             try
             {
-                // Never use target-relative Rpc (FX sticks to wrong unit / spectator).
                 __instance.SetTarget(null);
                 __instance.Networkdisabled = true;
 
-                Vector3 world = ResolveWorldBoomPos(__instance);
+                Vector3 dronePos = __instance.rb != null
+                    ? __instance.rb.position
+                    : __instance.transform.position;
+
+                if (!FpvBoomPending.TryPeek(__instance, out Vector3 world, out Vector3 droneAtHit))
+                {
+                    world = dronePos;
+                    FpvPlugin.ModLogger?.LogError(
+                        $"FPV Detonate Safe: no pending hit — fallback rb={world} datum={Datum.origin?.position}");
+                }
+                else
+                {
+                    if (droneAtHit.sqrMagnitude > 1f)
+                        dronePos = droneAtHit;
+                    world = SanitizeBoomWorld(world, dronePos, "Safe");
+                    FpvBoomPending.Set(__instance, world, dronePos);
+                }
+
                 SnapMissile(__instance, world);
 
                 Vector3 global = world.ToGlobalPosition().AsVector3();
+                Vector3 datum = Datum.origin != null ? Datum.origin.position : Vector3.zero;
                 bool armed = __instance.IsArmed();
                 if (normal.sqrMagnitude < 1e-6f)
                     normal = Vector3.up;
 
-                // Same net path as vanilla Detonate, but always absolute GlobalPosition.
+                FpvPlugin.ModLogger?.LogInfo(
+                    $"FPV boom Safe: world={world} drone={dronePos} global={global} datum={datum} decodedCheck={global + datum} armed={armed}");
+
                 __instance.RpcDetonate(null, false, global, armed, hitArmor, hitTerrain, normal);
 
                 object? task = DelayedDestroyMethod?.Invoke(__instance, new object[] { 2f });
@@ -51,20 +71,11 @@ namespace FPVMod.HarmonyPatches
             catch (Exception ex)
             {
                 FpvBoomPending.Clear(__instance);
-                FpvPlugin.ModLogger?.LogWarning($"FPV Detonate: {ex.Message}");
+                FpvPlugin.ModLogger?.LogWarning($"FPV Detonate Safe: {ex.Message}");
                 return true;
             }
 
             return false;
-        }
-
-        private static Vector3 ResolveWorldBoomPos(Missile m)
-        {
-            if (FpvBoomPending.TryConsume(m, out Vector3 pending))
-                return pending;
-            if (m.rb != null)
-                return m.rb.position;
-            return m.transform.position;
         }
 
         private static void SnapMissile(Missile m, Vector3 world)
@@ -76,6 +87,20 @@ namespace FPVMod.HarmonyPatches
             m.rb.angularVelocity = Vector3.zero;
             m.rb.position = world;
             m.rb.MovePosition(world);
+        }
+
+        /// <summary>Reject floating-origin center (0,0,0) / drifted pending — use drone pose.</summary>
+        internal static Vector3 SanitizeBoomWorld(Vector3 world, Vector3 dronePos, string tag)
+        {
+            const float maxDrift = 25f;
+            bool bad = (world - dronePos).sqrMagnitude > maxDrift * maxDrift;
+            if (!bad && world.sqrMagnitude < 1e-4f && dronePos.sqrMagnitude > 1f)
+                bad = true;
+            if (!bad)
+                return world;
+
+            FpvPlugin.ModLogger?.LogWarning($"FPV boom {tag}: reject world={world} → drone={dronePos}");
+            return dronePos;
         }
 
         private static void TryForget(object? uniTask)
@@ -107,142 +132,216 @@ namespace FPVMod.HarmonyPatches
     }
 
     /// <summary>
-    /// Replace Warhead FX Instantate: world position, no Datum.parent (particles emit at impact).
+    /// Full FPV RpcDetonate body: forced world from pending → snap + FX + BlastFrag.
+    /// Never uses relativeUnit / blind pos+Datum when pending exists.
     /// </summary>
-    [HarmonyPatch]
-    internal static class FpvWarheadDetonatePatch
+    internal static class FpvRpcDetonateReplacePatch
     {
-        private static readonly Type? WarheadType =
-            typeof(Missile).GetNestedType("Warhead", BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo? EffectsTransformField =
+            typeof(Missile).GetField("effectsTransform", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private static readonly FieldInfo? DetonatedField =
-            WarheadType?.GetField("detonated", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        private static readonly FieldInfo? FlightSoundField =
+            typeof(Missile).GetField("flightSound", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private static readonly FieldInfo? AirEffect =
-            WarheadType?.GetField("airEffect", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly FieldInfo? NearbyClipField =
+            typeof(Missile).GetField("nearbyDetonationClip", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private static readonly FieldInfo? ArmorEffect =
-            WarheadType?.GetField("armorEffect", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly FieldInfo? MotorField =
+            typeof(Missile).GetField("motor", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private static readonly FieldInfo? TerrainEffect =
-            WarheadType?.GetField("terrainEffect", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly MethodInfo? DisappearMethod =
+            typeof(Missile).GetMethod("Disappear", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private static readonly FieldInfo? WaterSurfaceEffect =
-            WarheadType?.GetField("waterSurfaceEffect", BindingFlags.Instance | BindingFlags.NonPublic);
-
-        private static readonly FieldInfo? UnderwaterEffect =
-            WarheadType?.GetField("underwaterEffect", BindingFlags.Instance | BindingFlags.NonPublic);
-
-        private static readonly FieldInfo? FizzleEffect =
-            WarheadType?.GetField("fizzleEffect", BindingFlags.Instance | BindingFlags.NonPublic);
-
-        private static MethodBase? TargetMethod()
-        {
-            if (WarheadType == null)
-                return null;
-            return AccessTools.Method(
-                WarheadType,
-                "Detonate",
-                new[]
-                {
-                    typeof(Rigidbody), typeof(PersistentID), typeof(Vector3), typeof(Vector3),
-                    typeof(bool), typeof(float), typeof(bool), typeof(bool)
-                });
-        }
-
-        private static bool Prefix(
-            object __instance,
-            Rigidbody rb,
-            PersistentID ownerID,
-            Vector3 position,
-            Vector3 normal,
+        internal static bool Prefix(
+            Missile __instance,
+            Unit relativeUnit,
+            bool useUnit,
+            Vector3 pos,
             bool armed,
-            float blastYield,
             bool hitArmor,
-            bool hitTerrain)
+            bool hitTerrain,
+            Vector3 normal)
         {
-            if (rb == null || rb.GetComponent<FpvDroneTag>() == null)
+            if (__instance == null)
                 return true;
 
-            if (DetonatedField != null && DetonatedField.GetValue(__instance) is true)
-                return false;
-
-            DetonatedField?.SetValue(__instance, true);
-
-            if (!armed)
+            // Stamp clients that never got server-side components.
+            if (DefinitionRegistrar.IsFpvMissile(__instance) ||
+                DefinitionRegistrar.IsFpvDrone(__instance.definition))
             {
-                GameObject? fizzle = FizzleEffect?.GetValue(__instance) as GameObject;
-                if (fizzle != null)
+                PrefabFactory.StampDroneInstance(__instance.gameObject);
+            }
+
+            if (!DefinitionRegistrar.IsFpvMissile(__instance))
+                return true;
+
+            try
+            {
+                Vector3 datum = Datum.origin != null ? Datum.origin.position : Vector3.zero;
+                Vector3 decoded = pos + datum;
+                Vector3 dronePos = __instance.rb != null
+                    ? __instance.rb.position
+                    : __instance.transform.position;
+
+                bool fromPending = FpvBoomPending.TryConsume(__instance, out Vector3 world, out Vector3 droneAtHit);
+                if (droneAtHit.sqrMagnitude > 1f)
+                    dronePos = droneAtHit;
+                else if (dronePos.sqrMagnitude < 1e-4f && __instance.transform.position.sqrMagnitude > 1f)
+                    dronePos = __instance.transform.position;
+
+                if (!fromPending)
                 {
-                    Vector3 vel = rb.velocity.sqrMagnitude > 0.01f ? rb.velocity : Vector3.forward;
-                    SpawnWorld(fizzle, rb.position, FastMath.LookRotation(vel));
+                    world = FpvDetonateSafePatch.SanitizeBoomWorld(decoded, dronePos, "RpcDecoded");
+                    FpvPlugin.ModLogger?.LogWarning(
+                        $"FPV boom Rpc: no pending — using world={world} (relativeIgnored={relativeUnit != null})");
                 }
-                return false;
-            }
-
-            if (normal.sqrMagnitude < 1e-6f)
-                normal = Vector3.up;
-            else
-                normal.Normalize();
-
-            float radiusHint = Mathf.Pow(Mathf.Max(blastYield, 1f), 0.3333f) * 2f;
-            bool underSea = position.y < Datum.LocalSeaY + 0.1f;
-            Vector3 seaPos = new Vector3(position.x, Datum.LocalSeaY, position.z);
-            GameObject? fx = null;
-
-            if (underSea)
-            {
-                fx = SpawnWorld(UnderwaterEffect?.GetValue(__instance) as GameObject, seaPos, Quaternion.identity);
-            }
-            else
-            {
-                if (hitTerrain)
-                    fx = SpawnWorld(TerrainEffect?.GetValue(__instance) as GameObject, position, Quaternion.LookRotation(normal));
-                if (hitArmor)
-                    fx = SpawnWorld(ArmorEffect?.GetValue(__instance) as GameObject, position, Quaternion.LookRotation(normal));
-
-                bool grounded = hitTerrain ||
-                    (Physics.Linecast(position, position - Vector3.up * radiusHint, out RaycastHit hit, PhysicsLayers.StaticsMask)
-                     && hit.point.y > Datum.LocalSeaY);
-
-                GameObject? waterPrefab = WaterSurfaceEffect?.GetValue(__instance) as GameObject;
-                if (waterPrefab != null && !grounded &&
-                    position.y < Datum.LocalSeaY + radiusHint && position.y > Datum.LocalSeaY + 1f)
+                else
                 {
-                    GameObject? waterFx = SpawnWorld(waterPrefab, seaPos, Quaternion.identity);
-                    if (waterFx != null)
-                        UnityEngine.Object.Destroy(waterFx, 30f);
+                    world = FpvDetonateSafePatch.SanitizeBoomWorld(world, dronePos, "RpcPending");
                 }
-            }
 
-            if (fx == null)
-                fx = SpawnWorld(AirEffect?.GetValue(__instance) as GameObject, position, FastMath.LookRotation(normal));
+                FpvPlugin.ModLogger?.LogInfo(
+                    $"FPV boom Rpc: pending={fromPending} world={world} drone={dronePos} decoded={decoded} datum={datum} pos={pos} armed={armed}");
 
-            if (blastYield > 200f)
-            {
-                if (fx != null)
+                RunMotorDestruct(__instance);
+                DetachEffects(__instance);
+                PlayDetonationSound(__instance);
+
+                if (armed)
                 {
-                    Shockwave? sw = fx.GetComponentInChildren<Shockwave>();
-                    sw?.SetOwner(ownerID, blastYield * 1e-06f);
+                    DisappearMethod?.Invoke(__instance, null);
+                    if (__instance.rb != null)
+                        __instance.rb.isKinematic = true;
                 }
+
+                Snap(__instance, world);
+
+                float yield = FpvMissileAccess.GetBlastYield(__instance);
+                FpvBoomFx.SpawnFromWarhead(__instance, world, normal, armed, yield, hitArmor, hitTerrain);
+                FpvBoomFx.MarkDetonated(__instance);
+
+                if (armed && yield <= 200f)
+                    DamageEffects.BlastFrag(yield, world, __instance.ownerID, __instance.persistentID);
+
+                FpvPlugin.ModLogger?.LogInfo($"FPV boom Rpc: BlastFrag+FX at world={world} yield={yield}");
             }
-            else if (fx != null)
+            catch (Exception ex)
             {
-                UnityEngine.Object.Destroy(fx, 30f);
+                FpvBoomPending.Clear(__instance);
+                FpvPlugin.ModLogger?.LogError($"FPV boom Rpc replace failed: {ex}");
+                return true;
             }
 
             return false;
         }
 
-        private static GameObject? SpawnWorld(GameObject? prefab, Vector3 worldPos, Quaternion rot)
+        private static void Snap(Missile m, Vector3 world)
         {
-            if (prefab == null)
-                return null;
-            // No parent — particles Awake/Play at impact, not at Datum.origin.
-            GameObject go = UnityEngine.Object.Instantiate(prefab, worldPos, rot);
-            if (go.transform.parent != null)
-                go.transform.SetParent(null, true);
-            return go;
+            m.transform.position = world;
+            if (m.rb == null)
+                return;
+            m.rb.velocity = Vector3.zero;
+            m.rb.angularVelocity = Vector3.zero;
+            m.rb.position = world;
+            m.rb.MovePosition(world);
+        }
+
+        private static void RunMotorDestruct(Missile m)
+        {
+            object? motor = MotorField?.GetValue(m);
+            if (motor == null)
+                return;
+            try
+            {
+                MethodInfo? destruct = motor.GetType().GetMethod(
+                    "Destruct",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                destruct?.Invoke(motor, new object[] { m });
+            }
+            catch (Exception ex)
+            {
+                FpvPlugin.ModLogger?.LogWarning($"FPV boom motor Destruct: {ex.Message}");
+            }
+        }
+
+        private static void DetachEffects(Missile m)
+        {
+            if (EffectsTransformField?.GetValue(m) is not Transform fx)
+                return;
+            if (Datum.origin != null)
+                fx.SetParent(Datum.origin, true);
+            UnityEngine.Object.Destroy(fx.gameObject, 20f);
+        }
+
+        private static void PlayDetonationSound(Missile m)
+        {
+            object? srcObj = FlightSoundField?.GetValue(m);
+            if (srcObj == null)
+                return;
+            try
+            {
+                Type srcType = srcObj.GetType();
+                object? clip = NearbyClipField?.GetValue(m);
+                srcType.GetMethod("Stop", Type.EmptyTypes)?.Invoke(srcObj, null);
+                if (clip != null)
+                    srcType.GetProperty("clip")?.SetValue(srcObj, clip);
+                srcType.GetProperty("pitch")?.SetValue(srcObj, 1f);
+                srcType.GetProperty("volume")?.SetValue(srcObj, 1f);
+                srcType.GetProperty("dopplerLevel")?.SetValue(srcObj, 1f);
+                srcType.GetProperty("loop")?.SetValue(srcObj, false);
+                srcType.GetMethod("Play", Type.EmptyTypes)?.Invoke(srcObj, null);
+            }
+            catch (Exception ex)
+            {
+                FpvPlugin.ModLogger?.LogWarning($"FPV boom sound: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>Manual boom patches — survives PatchAll AmbiguousMatch abort.</summary>
+    internal static class FpvBoomPatches
+    {
+        private static bool _done;
+
+        internal static void Ensure(Harmony harmony)
+        {
+            if (harmony == null || _done)
+                return;
+
+            MethodInfo? detonate = AccessTools.Method(
+                typeof(Missile),
+                nameof(Missile.Detonate),
+                new[] { typeof(Vector3), typeof(bool), typeof(bool) });
+            MethodInfo? rpc = AccessTools.Method(typeof(Missile), "UserCode_RpcDetonate_897349600");
+
+            if (detonate == null)
+                FpvPlugin.ModLogger?.LogError("FPV boom: Missile.Detonate MethodInfo is null");
+            if (rpc == null)
+                FpvPlugin.ModLogger?.LogError("FPV boom: UserCode_RpcDetonate MethodInfo is null");
+
+            try
+            {
+                // Always (re)apply via manual Patch — unpatch our id first to avoid double prefix.
+                if (detonate != null)
+                {
+                    harmony.Unpatch(detonate, HarmonyPatchType.Prefix, harmony.Id);
+                    harmony.Patch(detonate, prefix: new HarmonyMethod(typeof(FpvDetonateSafePatch), nameof(FpvDetonateSafePatch.Prefix)));
+                }
+
+                if (rpc != null)
+                {
+                    harmony.Unpatch(rpc, HarmonyPatchType.Prefix, harmony.Id);
+                    harmony.Patch(rpc, prefix: new HarmonyMethod(typeof(FpvRpcDetonateReplacePatch), nameof(FpvRpcDetonateReplacePatch.Prefix)));
+                }
+
+                _done = detonate != null && rpc != null;
+                FpvPlugin.ModLogger?.LogInfo(
+                    $"FPV: boom patches ready (Detonate={detonate != null}, RpcDetonate={rpc != null})");
+            }
+            catch (Exception ex)
+            {
+                FpvPlugin.ModLogger?.LogError($"FPV boom patches failed: {ex}");
+            }
         }
     }
 }

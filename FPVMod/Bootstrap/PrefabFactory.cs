@@ -60,6 +60,7 @@ namespace FPVMod.Bootstrap
             if (go.GetComponent<FpvDroneTag>() == null) go.AddComponent<FpvDroneTag>();
             if (go.GetComponent<FpvAcroController>() == null) go.AddComponent<FpvAcroController>();
             if (go.GetComponent<FpvWarhead>() == null) go.AddComponent<FpvWarhead>();
+            if (go.GetComponent<FpvImpactContact>() == null) go.AddComponent<FpvImpactContact>();
 
             ApplyDroneVisuals(go);
             EnsureRigidbody(go, FpvConstants.DroneMassKg);

@@ -56,6 +56,20 @@ namespace FPVMod.Access
         internal static void SetBlastYield(Missile m, float yield) =>
             BlastYieldField?.SetValue(m, yield);
 
+        internal static float GetBlastYield(Missile m)
+        {
+            if (m == null || BlastYieldField == null)
+                return FpvConstants.BlastYieldKg;
+            try
+            {
+                return BlastYieldField.GetValue(m) is float y ? y : FpvConstants.BlastYieldKg;
+            }
+            catch
+            {
+                return FpvConstants.BlastYieldKg;
+            }
+        }
+
         internal static void DisableProxyFuse(Missile m)
         {
             // proxyFuse is Missile.ProxyFuse (class), NOT bool — SetValue(false) throws ArgumentException
