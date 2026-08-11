@@ -1,0 +1,19 @@
+bin/
+obj/
+.vs/
+*.user
+.cursor/
+.cursorrules
+
+# Unity bake project (dev artifacts)
+FPVMod/UnityAssets/Library/
+FPVMod/UnityAssets/Logs/
+FPVMod/UnityAssets/Temp/
+FPVMod/UnityAssets/UserSettings/
+FPVMod/UnityAssets/bundle-build.log
+FPVMod/UnityAssets/*.csproj
+FPVMod/UnityAssets/*.sln
+
+# Build output copies
+FPVMod/bin/
+FPVMod/obj/
