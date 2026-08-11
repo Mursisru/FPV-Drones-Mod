@@ -26,10 +26,12 @@ namespace FPVMod
         internal const float DroneMaxRadius = 1.5f;
         /// <summary>Target world length (m) for FBX visual after stamp — compensates tiny bomb_125 parent scale.</summary>
         internal const float DroneVisualLengthM = 2.5f;
-        /// <summary>Local euler on FPV_Visual if Unity axis bake still leaves Blender tilt.</summary>
-        internal const float DroneVisualRotX = 0f;
+        /// <summary>Local euler on FPV_Visual root (Blender Z-up → Unity Y-up, no double bake).</summary>
+        internal const float DroneVisualRotX = -90f;
         internal const float DroneVisualRotY = 0f;
         internal const float DroneVisualRotZ = 0f;
+        /// <summary>FBX material name token — only this slot gets Texture_RPGB.</summary>
+        internal const string AmmoMaterialToken = "RPGB";
         internal const float HitPoints = 250f;
         internal const float PierceArmor = 2f;
         internal const float PierceTolerance = 3f;

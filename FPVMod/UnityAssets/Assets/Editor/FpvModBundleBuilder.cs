@@ -68,7 +68,6 @@ public static class FpvModBundleBuilder
         inst.transform.localPosition = Vector3.zero;
         inst.transform.localRotation = Quaternion.identity;
         inst.transform.localScale = Vector3.one;
-        AssignDroneAlbedo(inst);
 
         Transform? mount = inst.transform.Find("CameraMount");
         if (mount == null)
@@ -85,38 +84,6 @@ public static class FpvModBundleBuilder
         return true;
     }
 
-    static void AssignDroneAlbedo(GameObject root)
-    {
-        Texture2D? tex = AssetDatabase.LoadAssetAtPath<Texture2D>(ModelsDir + "/Texture_RPGB.png");
-        if (tex == null)
-        {
-            string[] guids = AssetDatabase.FindAssets("Texture_RPGB t:Texture2D", new[] { ModelsDir });
-            if (guids.Length > 0)
-                tex = AssetDatabase.LoadAssetAtPath<Texture2D>(AssetDatabase.GUIDToAssetPath(guids[0]));
-        }
-
-        if (tex == null)
-        {
-            Debug.LogWarning("[FPVMod] Texture_RPGB.png missing — FBX materials may be untextured.");
-            return;
-        }
-
-        foreach (Renderer r in root.GetComponentsInChildren<Renderer>(true))
-        {
-            if (r == null)
-                continue;
-            Material[] mats = r.sharedMaterials;
-            for (int i = 0; i < mats.Length; i++)
-            {
-                if (mats[i] == null)
-                    continue;
-                mats[i].mainTexture = tex;
-                mats[i].color = Color.white;
-            }
-            r.sharedMaterials = mats;
-        }
-    }
-
     static void ConfigureFbxImporter()
     {
         var importer = AssetImporter.GetAtPath(DroneFbxPath) as ModelImporter;
@@ -125,7 +92,7 @@ public static class FpvModBundleBuilder
 
         importer.globalScale = 1f;
         importer.useFileScale = true;
-        importer.bakeAxisConversion = true;
+        importer.bakeAxisConversion = false;
         importer.materialImportMode = ModelImporterMaterialImportMode.ImportStandard;
         importer.materialLocation = ModelImporterMaterialLocation.InPrefab;
         importer.SaveAndReimport();

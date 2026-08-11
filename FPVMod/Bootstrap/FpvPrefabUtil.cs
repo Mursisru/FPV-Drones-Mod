@@ -152,10 +152,11 @@ namespace FPVMod.Bootstrap
                 return;
 
             visual.transform.localPosition = Vector3.zero;
-            visual.transform.localRotation = Quaternion.Euler(
+            Quaternion modelFix = Quaternion.Euler(
                 FpvConstants.DroneVisualRotX,
                 FpvConstants.DroneVisualRotY,
                 FpvConstants.DroneVisualRotZ);
+            visual.transform.localRotation = Quaternion.Inverse(parent.localRotation) * modelFix;
             visual.transform.localScale = Vector3.one;
 
             float meshExtent = GetMaxMeshLocalExtent(visual);
@@ -174,7 +175,7 @@ namespace FPVMod.Bootstrap
             visual.transform.localScale = Vector3.one * localScale;
         }
 
-        /// <summary>Game-compatible materials: vanilla shader + bundle albedo per submesh slot.</summary>
+        /// <summary>Game shader + original slot colors; Texture_RPGB only on ammo material.</summary>
         internal static void ApplyDroneVisualMaterials(GameObject visual, GameObject missileRoot)
         {
             if (visual == null)
@@ -190,7 +191,7 @@ namespace FPVMod.Bootstrap
                 return;
             }
 
-            Texture? defaultAlbedo = BundleLoader.LoadDroneAlbedoTexture();
+            Texture? ammoAlbedo = BundleLoader.LoadDroneAlbedoTexture();
 
             foreach (Renderer r in visual.GetComponentsInChildren<Renderer>(true))
             {
@@ -206,16 +207,17 @@ namespace FPVMod.Bootstrap
                 {
                     Material? src = shared[i];
                     Material mat = new Material(shader);
-                    Texture? albedo = ResolveSlotAlbedo(src, defaultAlbedo);
 
-                    if (albedo != null)
+                    if (IsAmmoMaterial(src))
                     {
-                        ApplyAlbedo(mat, albedo, src);
+                        if (ammoAlbedo != null)
+                            ApplyAlbedo(mat, ammoAlbedo, src);
+                        else if (src != null)
+                            CopyMaterialColorAndMaps(src, mat);
                     }
                     else if (src != null)
                     {
-                        mat.color = src.color;
-                        CopySecondaryMaps(src, mat);
+                        CopyMaterialColorAndMaps(src, mat);
                     }
                     else
                     {
@@ -229,11 +231,24 @@ namespace FPVMod.Bootstrap
             }
         }
 
-        private static Texture? ResolveSlotAlbedo(Material? src, Texture? fallback)
+        internal static bool IsAmmoMaterial(Material? src)
         {
-            if (src?.mainTexture != null)
-                return src.mainTexture;
-            return fallback;
+            if (src == null || string.IsNullOrEmpty(src.name))
+                return false;
+            return src.name.IndexOf(FpvConstants.AmmoMaterialToken, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static void CopyMaterialColorAndMaps(Material src, Material dst)
+        {
+            dst.color = src.color;
+            if (src.mainTexture != null && dst.HasProperty("_MainTex"))
+            {
+                dst.mainTexture = src.mainTexture;
+                if (dst.HasProperty("_MainTex_ST"))
+                    dst.SetTextureScale("_MainTex", src.mainTextureScale);
+            }
+
+            CopySecondaryMaps(src, dst);
         }
 
         private static void ApplyAlbedo(Material mat, Texture albedo, Material? src)
