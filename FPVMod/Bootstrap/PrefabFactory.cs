@@ -1,4 +1,5 @@
 using FPVMod.Access;
+using FPVMod.Audio;
 using FPVMod.Drone;
 using FPVMod.Launcher;
 using UnityEngine;
@@ -61,6 +62,7 @@ namespace FPVMod.Bootstrap
             if (go.GetComponent<FpvAcroController>() == null) go.AddComponent<FpvAcroController>();
             if (go.GetComponent<FpvWarhead>() == null) go.AddComponent<FpvWarhead>();
             if (go.GetComponent<FpvImpactContact>() == null) go.AddComponent<FpvImpactContact>();
+            if (go.GetComponent<FpvDroneMotorAudio>() == null) go.AddComponent<FpvDroneMotorAudio>();
 
             ApplyDroneVisuals(go);
             EnsureRigidbody(go, FpvConstants.DroneMassKg);

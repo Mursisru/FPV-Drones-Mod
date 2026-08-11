@@ -14,8 +14,8 @@ namespace FPVMod
                     if (GameplayUI.GameIsPaused || Time.timeScale < 0.01f)
                         return true;
 
-                    // During FPV: only real pause. MC reset often leaves menuCanvas on /
-                    // flightControlsEnabled=false — that must NOT freeze the next drone.
+                    // During FPV (incl. boom spectate): only real pause freezes sticks.
+                    // BoomSpectate freezes via FpvInputBridge + session Tick.
                     if (Session.FpvControlSession.Active)
                         return false;
 

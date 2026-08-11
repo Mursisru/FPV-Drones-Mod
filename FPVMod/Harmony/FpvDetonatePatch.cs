@@ -3,6 +3,7 @@ using System.Reflection;
 using FPVMod.Access;
 using FPVMod.Bootstrap;
 using FPVMod.Drone;
+using FPVMod.Session;
 using HarmonyLib;
 using UnityEngine;
 
@@ -245,6 +246,9 @@ namespace FPVMod.HarmonyPatches
                 float yield = FpvMissileAccess.GetBlastYield(__instance);
                 FpvBoomFx.SpawnFromWarhead(__instance, world, normal, armed, yield, hitArmor, hitTerrain);
                 FpvBoomFx.MarkDetonated(__instance);
+
+                if (FpvControlSession.Active && FpvControlSession.Drone == __instance)
+                    FpvBoomSpectate.TryBegin(__instance, world);
 
                 if (armed && yield <= 200f)
                 {

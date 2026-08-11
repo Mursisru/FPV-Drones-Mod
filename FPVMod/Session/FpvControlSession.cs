@@ -1,5 +1,6 @@
-using FPVMod.FpvView;
+using FPVMod.Audio;
 using FPVMod.Drone;
+using FPVMod.FpvView;
 using FPVMod.Input;
 using FPVMod.Launcher;
 using FPVMod.Link;
@@ -9,17 +10,16 @@ namespace FPVMod.Session
 {
     internal static class FpvControlSession
     {
-        private const float EndDelaySec = 0.8f;
-
         internal static bool Active { get; private set; }
         internal static Missile? Drone { get; private set; }
         internal static FpvLauncher? Launcher { get; private set; }
         internal static Aircraft? HeldAircraft { get; private set; }
 
-        private static float _endAfterUnscaled = -1f;
+        /// <summary>True while boom death-cam plays — sticks frozen, no stick fly.</summary>
+        internal static bool BoomSpectating => FpvBoomSpectate.Active;
 
         internal static bool IsControlling(Missile m) =>
-            Active && Drone != null && Drone == m;
+            Active && !FpvBoomSpectate.Active && Drone != null && Drone == m;
 
         internal static void Begin(Missile drone, FpvLauncher launcher)
         {
@@ -31,7 +31,6 @@ namespace FPVMod.Session
             Drone = drone;
             Launcher = launcher;
             Active = true;
-            _endAfterUnscaled = -1f;
             FpvInputBridge.ResetSession();
             EnsureFlightControls();
 
@@ -45,6 +44,10 @@ namespace FPVMod.Session
                 FpvJetAutopilotHold.Enable(HeldAircraft);
 
             FpvCameraRig.Attach(drone);
+            // Listener after feed cam exists — world audio from drone, not jet/CSM.
+            FpvListenerBridge.Enter(HeldAircraft);
+            if (drone.GetComponent<FpvDroneMotorAudio>() == null)
+                drone.gameObject.AddComponent<FpvDroneMotorAudio>();
             FpvOsdCanvas.Show();
             EnsureFlightControls();
 
@@ -57,11 +60,12 @@ namespace FPVMod.Session
 
         internal static void End()
         {
-            if (!Active && _endAfterUnscaled < 0f)
+            if (!Active && !FpvBoomSpectate.Active)
                 return;
 
-            _endAfterUnscaled = -1f;
+            FpvBoomSpectate.Cancel();
             FpvJetAutopilotHold.Disable();
+            FpvListenerBridge.Exit();
             FpvCameraRig.Detach();
             FpvOsdCanvas.Hide();
             FpvInputBridge.Freeze();
@@ -75,19 +79,19 @@ namespace FPVMod.Session
 
         internal static void Tick()
         {
-            if (!Active || Drone == null)
-                return;
-
-            if (_endAfterUnscaled >= 0f)
+            if (FpvBoomSpectate.Active)
             {
-                if (Time.unscaledTime >= _endAfterUnscaled)
-                    End();
+                FpvBoomSpectate.Tick();
                 return;
             }
 
+            if (!Active || Drone == null)
+                return;
+
             if (Drone.disabled)
             {
-                _endAfterUnscaled = Time.unscaledTime + EndDelaySec;
+                Vector3 boom = Drone.rb != null ? Drone.rb.position : Drone.transform.position;
+                FpvBoomSpectate.TryBegin(Drone, boom);
                 return;
             }
 

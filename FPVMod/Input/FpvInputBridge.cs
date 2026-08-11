@@ -37,13 +37,7 @@ namespace FPVMod.Input
 
         internal static void Freeze()
         {
-            Sample = new FpvInputSample
-            {
-                Pitch = 0f,
-                Roll = 0f,
-                Yaw = 0f,
-                Throttle = Sample.Throttle
-            };
+            Sample = default;
         }
 
         internal static void Poll(Rewired.Player? player)

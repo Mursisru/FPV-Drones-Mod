@@ -48,12 +48,24 @@ namespace FPVMod.FpvView
         private static ColorAdjustments? _colorAdj;
         private static Bloom? _bloom;
         private static float _nvgGainStamp = -1f;
+        private static Vector3 _lastFeedWorldPos;
+        private static Vector3 _feedWorldVelocity;
+        private static bool _haveFeedVelSample;
 
-        internal static bool IsActive => _active && _missile != null;
+        // Boom death-cam (side/overhead, shake, no UI, keep vision).
+        private static bool _boomSpectate;
+        private static Vector3 _boomLookAt;
+        private static Vector3 _preBoomForward = Vector3.forward;
+        private static float _boomFov = 60f;
+
+        internal static bool IsActive => _active && (_missile != null || _boomSpectate);
+        internal static bool BoomSpectateActive => _boomSpectate;
         internal static bool UseIdleDriverWait => !_active;
         internal static float Magnification => _magnification;
         internal static Camera? FeedCamera => _cam;
         internal static RectTransform? PanelRt => _panelRt;
+        /// <summary>World-space feed velocity for CloudLayer sample (CSM.cameraVelocity parity).</summary>
+        internal static Vector3 FeedWorldVelocity => _feedWorldVelocity;
 
         internal static void Attach(Missile drone)
         {
@@ -98,13 +110,15 @@ namespace FPVMod.FpvView
         /// <summary>Keys in Update (MC PollInputEarly) — not EOF.</summary>
         internal static void PollInputEarly()
         {
-            if (!_active || _missile == null)
+            if (!_active)
                 return;
-            if (FpvUiGate.BlocksFlightInput)
+            if (_boomSpectate || FpvUiGate.BlocksFlightInput || FpvControlSession.BoomSpectating)
             {
                 FpvFsLookAround.Reset();
                 return;
             }
+            if (_missile == null)
+                return;
 
             FpvVisionModeController.TickInput(FpvControlSession.Active);
             FpvFsLookAround.Tick(FpvControlSession.Active);
@@ -114,20 +128,45 @@ namespace FPVMod.FpvView
         /// <summary>EOF render + HUD (MC FeedController.Tick).</summary>
         internal static void TickEndOfFrame()
         {
-            if (!_active || _missile == null || _missile.disabled || _rigGo == null || _cam == null)
+            if (!_active || _rigGo == null || _cam == null)
+                return;
+
+            if (_boomSpectate)
+            {
+                TickBoomSpectatePose();
+                if (_cam != null)
+                    _cam.fieldOfView = _boomFov;
+                SyncDisplayFilter();
+                SampleFeedVelocity();
+
+                Vector3 evalPos = _boomLookAt;
+                float policyExp = FpvInfraredPolicy.Evaluate(evalPos);
+                ApplyVisionPath(force: false, policyExp);
+
+                if (!_pipelineDriven)
+                    ManualRenderFrame();
+
+                BindDisplayTexture();
+                return;
+            }
+
+            if (_missile == null || _missile.disabled)
                 return;
 
             ApplyPose();
             ApplyEffectiveFov();
             SyncDisplayFilter();
+            SampleFeedVelocity();
+            if (_cam != null)
+                _preBoomForward = _cam.transform.forward;
 
-            float policyExp = FpvInfraredPolicy.Evaluate(_missile.transform.position);
-            ApplyVisionPath(force: false, policyExp);
+            float policyExpLive = FpvInfraredPolicy.Evaluate(_missile.transform.position);
+            ApplyVisionPath(force: false, policyExpLive);
 
             if (!_pipelineDriven)
                 ManualRenderFrame();
 
-            if (_gunship != null)
+            if (_gunship != null && _cam != null)
             {
                 FpvGunshipSnapshot snap = FpvGunshipSnapshot.Build(_missile, _cam.fieldOfView);
                 _gunship.Update(snap, FpvPanelMetrics.FromRect(_panelRt));
@@ -135,6 +174,52 @@ namespace FPVMod.FpvView
             }
 
             BindDisplayTexture();
+        }
+
+        /// <summary>Side/overhead ~500 m shot — heli or phone style (shake + living zoom).</summary>
+        internal static void BeginBoomSpectate(Vector3 boomWorld)
+        {
+            if (!_active || _rigGo == null || _cam == null)
+                return;
+
+            _boomSpectate = true;
+            _boomLookAt = boomWorld;
+
+            if (_rigGo.transform.parent != null)
+                _rigGo.transform.SetParent(null, true);
+
+            Vector3 fwd = _preBoomForward.sqrMagnitude > 0.01f
+                ? _preBoomForward.normalized
+                : (_cam.transform.forward.sqrMagnitude > 0.01f ? _cam.transform.forward.normalized : Vector3.forward);
+
+            FpvBoomCam.Begin(_rigGo.transform, _cam, boomWorld, fwd);
+            _boomFov = _cam.fieldOfView;
+
+            _gunship?.SetVisible(false);
+            FpvLookAroundHud.DestroyUi();
+            FpvFsLookAround.Reset();
+            SetLinkStatic(0f);
+
+            FpvPlugin.ModLogger?.LogInfo(
+                $"FPV boom cam vision={FpvVisionModeController.Mode}");
+        }
+
+        internal static void TickBoomSpectate()
+        {
+            // Pose/FOV applied in TickEndOfFrame.
+        }
+
+        private static void TickBoomSpectatePose()
+        {
+            if (!_boomSpectate || _rigGo == null || _cam == null)
+                return;
+            _boomFov = FpvBoomCam.Tick(_rigGo.transform, _cam);
+        }
+
+        internal static void EndBoomSpectate()
+        {
+            _boomSpectate = false;
+            FpvBoomCam.End();
         }
 
         /// <summary>Legacy name — host no longer calls this; driver owns timing.</summary>
@@ -159,6 +244,7 @@ namespace FPVMod.FpvView
         internal static void Detach()
         {
             _active = false;
+            _boomSpectate = false;
             _missile = null;
             if (FpvConfig.ZoomResetOnExit.Value)
                 _magnification = 1f;
@@ -174,6 +260,8 @@ namespace FPVMod.FpvView
             _pipelineDriven = true;
             _armedMode = (FpvVisionMode)255;
             _lastPolicyExposure = float.NaN;
+            _haveFeedVelSample = false;
+            _feedWorldVelocity = Vector3.zero;
 
             if (_cam != null)
             {
@@ -260,12 +348,19 @@ namespace FPVMod.FpvView
             _blitContrast = contrast;
         }
 
+        /// <summary>
+        /// Pipeline COLOR: Base + enabled (URP draws + ParticleSystem Automatic sees cam).
+        /// Manual IR/NVG: Overlay + enabled (orphan — no auto Base pass, particles still simulate).
+        /// enabled=false killed explosions/smoke/clouds near the drone.
+        /// </summary>
         private static void ApplyFeedCameraActiveState()
         {
             if (_cam == null)
                 return;
 
             UniversalAdditionalCameraData urp = _cam.GetUniversalAdditionalCameraData();
+            EnsureEffectsCulling(_cam);
+
             if (_pipelineDriven)
             {
                 urp.renderType = CameraRenderType.Base;
@@ -278,7 +373,37 @@ namespace FPVMod.FpvView
             urp.renderType = CameraRenderType.Overlay;
             urp.renderPostProcessing = false;
             _cam.targetTexture = _rt;
-            _cam.enabled = false;
+            _cam.enabled = true;
+        }
+
+        private static void EnsureEffectsCulling(Camera cam)
+        {
+            int mask = cam.cullingMask
+                | (int)PhysicsLayers.EffectsMask
+                | (int)PhysicsLayers.TransparentFXMask
+                | (int)PhysicsLayers.WaterMask
+                | (int)PhysicsLayers.SunMask;
+            if (cam.cullingMask != mask)
+                cam.cullingMask = mask;
+        }
+
+        private static void SampleFeedVelocity()
+        {
+            if (_cam == null)
+                return;
+            Vector3 pos = _cam.transform.position;
+            if (_haveFeedVelSample)
+            {
+                float dt = Time.unscaledDeltaTime;
+                if (dt > 1e-4f)
+                    _feedWorldVelocity = (pos - _lastFeedWorldPos) / dt;
+            }
+            else
+            {
+                _feedWorldVelocity = Vector3.zero;
+                _haveFeedVelSample = true;
+            }
+            _lastFeedWorldPos = pos;
         }
 
         private static void ManualRenderFrame()

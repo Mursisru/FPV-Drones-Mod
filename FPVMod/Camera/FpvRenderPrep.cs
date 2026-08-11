@@ -271,7 +271,9 @@ namespace FPVMod.FpvView
             bool wantPp = _pipelineInfrared || _pipelineNightVision;
             int desiredCulling = reference.cullingMask
                 | (int)PhysicsLayers.EffectsMask
-                | (int)PhysicsLayers.TransparentFXMask;
+                | (int)PhysicsLayers.TransparentFXMask
+                | (int)PhysicsLayers.WaterMask
+                | (int)PhysicsLayers.SunMask;
 
             bool dirty = !ReferenceEquals(reference, _lastMirrorReference)
                 || _lastMirrorCulling != desiredCulling

@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.3.0] — 2026-08-11
+
+### Added
+
+- Boom spectate death-cam (~500 m AGL): random helicopter or phone handheld style (living zoom + shake), keep vision, no UI, input locked
+- CloudLayer samples FPV feed while session active; drone motor audio + feed AudioListener bridge
+- Explosion audio distance routed to feed cam during FPV
+
+### Fixed
+
+- Particle Automatic culling: feed cam stays Overlay+enabled during WH/NVG manual path
+
 ## [2.2.0] — 2026-08-11
 
 ### Added
