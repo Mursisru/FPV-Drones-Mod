@@ -152,6 +152,7 @@ namespace FPVMod.Drone
                     normal.Normalize();
 
                 try { missile.SetTarget(null); } catch { /* ignore */ }
+                FpvBoomPending.Set(missile, point);
                 missile.transform.position = point;
                 if (missile.rb != null)
                 {
