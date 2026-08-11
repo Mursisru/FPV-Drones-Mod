@@ -1,6 +1,6 @@
+using System;
 using System.Reflection;
 using FPVMod.Access;
-using FPVMod.Launcher;
 using UnityEngine;
 
 namespace FPVMod.Drone
@@ -12,34 +12,61 @@ namespace FPVMod.Drone
             if (missile == null)
                 return;
 
-            FpvMissileAccess.SetBlastYield(missile, FpvConstants.BlastYieldKg);
-            FpvMissileAccess.DisableProxyFuse(missile);
-            FpvMissileAccess.ClearSeeker(missile);
-            FpvMissileAccess.ZeroUpright(missile);
-            FpvMissileAccess.RelaxLimits(missile);
-            FpvMissileAccess.SetTorque(missile, FpvConstants.AcroTorque);
+            // Each step isolated — one bad field must not abort possession.
+            Try("blast", () => FpvMissileAccess.SetBlastYield(missile, FpvConstants.BlastYieldKg));
+            Try("proxy", () => FpvMissileAccess.DisableProxyFuse(missile));
+            Try("seeker", () => FpvMissileAccess.ClearSeeker(missile));
+            Try("upright", () => FpvMissileAccess.ZeroUpright(missile));
+            Try("limits", () => FpvMissileAccess.RelaxLimits(missile));
+            Try("torque", () => FpvMissileAccess.SetTorque(missile, 0f)); // no missile fin torque — FPV rates own
+            Try("motors", () => FpvMotorKill.KillAll(missile));
 
-            missile.maxRadius = FpvConstants.DroneMaxRadius;
-            missile.SetTarget(null);
-
-            FieldInfo? irField = typeof(Unit).GetField("IRSources",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            if (irField?.GetValue(missile) is System.Collections.IList list)
-                list.Clear();
-
-            foreach (UnitPart part in missile.GetComponentsInChildren<UnitPart>(true))
+            try
             {
-                part.hitPoints = FpvConstants.HitPoints;
-                ArmorProperties armor = part.GetArmorProperties();
-                armor.pierceArmor = FpvConstants.PierceArmor;
-                armor.pierceTolerance = FpvConstants.PierceTolerance;
+                missile.maxRadius = FpvConstants.DroneMaxRadius;
+                missile.SetTarget(null);
             }
+            catch (Exception ex)
+            {
+                FpvPlugin.ModLogger?.LogWarning($"FpvAiProfile target: {ex.Message}");
+            }
+
+            Try("ir", () =>
+            {
+                FieldInfo? irField = typeof(Unit).GetField("IRSources",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (irField?.GetValue(missile) is System.Collections.IList list)
+                    list.Clear();
+            });
+
+            Try("armor", () =>
+            {
+                foreach (UnitPart part in missile.GetComponentsInChildren<UnitPart>(true))
+                {
+                    part.hitPoints = FpvConstants.HitPoints;
+                    ArmorProperties armor = part.GetArmorProperties();
+                    armor.pierceArmor = FpvConstants.PierceArmor;
+                    armor.pierceTolerance = FpvConstants.PierceTolerance;
+                }
+            });
 
             if (missile.definition is MissileDefinition md)
                 md.radarSize = FpvConstants.RadarSize;
 
             if (owner != null)
-                missile.NetworkHQ = owner.NetworkHQ;
+            {
+                try { missile.NetworkHQ = owner.NetworkHQ; }
+                catch (Exception ex) { FpvPlugin.ModLogger?.LogWarning($"FpvAiProfile HQ: {ex.Message}"); }
+            }
+        }
+
+        private static void Try(string step, Action action)
+        {
+            try { action(); }
+            catch (Exception ex)
+            {
+                FpvPlugin.ModLogger?.LogWarning($"FpvAiProfile.{step}: {ex.Message}");
+            }
         }
     }
 }

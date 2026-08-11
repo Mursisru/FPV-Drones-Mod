@@ -66,6 +66,10 @@ namespace FPVMod.Link
             }
 
             bool los = HasLineOfSight(drone, anchor);
+            // Near launcher after spawn Linecast often hits the truck → false "no LoS". Ignore close range.
+            if (dist < 80f)
+                los = true;
+
             bool jammed = IsJammed(drone, dist);
 
             if (jammed)

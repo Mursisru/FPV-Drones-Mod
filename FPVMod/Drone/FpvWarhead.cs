@@ -1,13 +1,19 @@
-using FPVMod.Launcher;
 using System.Reflection;
+using FPVMod.Access;
+using FPVMod.Launcher;
 using UnityEngine;
 
 namespace FPVMod.Drone
 {
+    /// <summary>
+    /// SAFE window then Arm() + impactFuse. impactFuseDelay must stay 0 (instant boom, not pierce delay).
+    /// </summary>
     internal sealed class FpvWarhead : MonoBehaviour
     {
-        private static readonly FieldInfo? WarheadField =
-            typeof(Missile).GetField("warhead", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly FieldInfo? ImpactFuseField =
+            typeof(Missile).GetField("impactFuse", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly FieldInfo? ImpactFuseDelayField =
+            typeof(Missile).GetField("impactFuseDelay", BindingFlags.Instance | BindingFlags.NonPublic);
 
         private Missile? _missile;
         private float _spawnTime;
@@ -21,35 +27,71 @@ namespace FPVMod.Drone
             _missile = GetComponent<Missile>();
             _spawnTime = Time.time;
             _armed = false;
-            SetWarheadArmed(false);
+            SetImpactFuse(false);
+            // NOT arming delay — game uses this as post-penetration fuse. 0 = detonate on impact.
+            if (ImpactFuseDelayField != null && _missile != null)
+                ImpactFuseDelayField.SetValue(_missile, 0f);
+            FpvMissileAccess.DisableProxyFuse(_missile!);
         }
 
-        private void SetWarheadArmed(bool armed)
+        private void FixedUpdate()
         {
-            if (_missile == null || WarheadField == null)
+            if (_missile == null || _missile.disabled)
                 return;
-            object? wh = WarheadField.GetValue(_missile);
-            if (wh == null)
-                return;
-            typeof(Missile.Warhead).GetField("Armed")?.SetValue(wh, armed);
-        }
 
-        private void Update()
-        {
-            if (_armed || _missile == null)
+            FpvMissileAccess.DisableProxyFuse(_missile);
+            if (ImpactFuseDelayField != null)
+                ImpactFuseDelayField.SetValue(_missile, 0f);
+
+            if (_armed)
+            {
+                SetImpactFuse(true);
                 return;
+            }
+
+            SetImpactFuse(false);
+
             if (Time.time - _spawnTime < FpvConstants.ArmingDelaySec)
                 return;
+            if (!IsClearOfLauncher())
+                return;
+
             _armed = true;
-            SetWarheadArmed(true);
+            try
+            {
+                _missile.Arm(); // sets warhead.Armed via game API
+                _missile.SetTangible(true);
+            }
+            catch
+            {
+                // ignore
+            }
+            SetImpactFuse(true);
+        }
+
+        private bool IsClearOfLauncher()
+        {
+            FpvDroneTag? tag = GetComponent<FpvDroneTag>();
+            Unit? owner = tag?.SourceLauncher != null ? tag.SourceLauncher.OwnerUnit : _missile?.owner;
+            if (owner == null || owner.disabled)
+                return Time.time - _spawnTime > FpvConstants.ArmingDelaySec + 0.5f;
+
+            float dist = Vector3.Distance(transform.position, owner.transform.position);
+            return dist > 12f;
+        }
+
+        private void SetImpactFuse(bool on)
+        {
+            if (_missile == null || ImpactFuseField == null)
+                return;
+            ImpactFuseField.SetValue(_missile, on);
         }
 
         internal bool ShouldBlockFriendlyCollision(Unit? other)
         {
             if (_armed || other == null)
                 return false;
-            FpvLauncher? launcher = other.GetComponentInParent<FpvLauncher>();
-            return launcher != null;
+            return other.GetComponentInParent<FpvLauncher>() != null;
         }
     }
 }

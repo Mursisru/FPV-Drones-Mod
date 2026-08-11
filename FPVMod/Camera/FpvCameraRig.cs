@@ -1,73 +1,51 @@
-using FPVMod.Drone;
-using FPVMod.Link;
-using FPVMod.Session;
 using UnityEngine;
 
 namespace FPVMod.FpvView
 {
+    /// <summary>
+    /// Prefer MissileCamera FS with BodyLockAcro (no horizon/turn-look limits).
+    /// Fallback: local body-locked feed.
+    /// </summary>
     internal static class FpvCameraRig
     {
-        private static Camera? _cam;
-        private static Transform? _mount;
-        private static float _savedFov;
-        private static Transform? _savedParent;
-        private static Vector3 _savedLocalPos;
-        private static Quaternion _savedLocalRot;
+        private static bool _usingMc;
+        private static bool _usingLocal;
 
         internal static void Attach(Missile drone)
         {
             if (drone == null)
                 return;
 
-            _cam = Camera.main;
-            if (_cam == null)
+            Detach();
+
+            _usingMc = FpvMissileCameraBridge.TryAttach(drone);
+            if (_usingMc)
                 return;
 
-            _mount = FindMount(drone.transform);
-            _savedFov = _cam.fieldOfView;
-            _savedParent = _cam.transform.parent;
-            _savedLocalPos = _cam.transform.localPosition;
-            _savedLocalRot = _cam.transform.localRotation;
+            FpvFeedCamera.Attach(drone);
+            _usingLocal = true;
+        }
 
-            _cam.transform.SetParent(_mount, false);
-            _cam.transform.localPosition = Vector3.zero;
-            _cam.transform.localRotation = Quaternion.identity;
-            _cam.fieldOfView = FpvConstants.CameraFov;
-
-            FpvPostProcess.Enable(_cam);
-            FlightHud.EnableCanvas(false);
+        internal static void LateTick()
+        {
+            if (_usingMc)
+                FpvMissileCameraBridge.TickKeepAlive(Session.FpvControlSession.Drone);
+            if (_usingLocal)
+                FpvFeedCamera.LateTick();
         }
 
         internal static void Detach()
         {
-            if (_cam == null)
-                return;
-
-            FpvPostProcess.Disable();
-            _cam.fieldOfView = _savedFov;
-            if (_savedParent != null)
+            if (_usingMc)
             {
-                _cam.transform.SetParent(_savedParent, false);
-                _cam.transform.localPosition = _savedLocalPos;
-                _cam.transform.localRotation = _savedLocalRot;
+                FpvMissileCameraBridge.Detach();
+                _usingMc = false;
             }
-
-            if (SceneSingleton<CameraStateManager>.i != null)
-                SceneSingleton<CameraStateManager>.i.SetFollowingUnit(null);
-
-            FlightHud.EnableCanvas(SceneSingleton<CameraStateManager>.i?.currentState ==
-                                   SceneSingleton<CameraStateManager>.i?.cockpitState);
-
-            _cam = null;
-            _mount = null;
-        }
-
-        private static Transform FindMount(Transform root)
-        {
-            Transform? m = root.Find("FPV_Visual/CameraMount");
-            if (m == null)
-                m = root.Find("CameraMount");
-            return m != null ? m : root;
+            if (_usingLocal)
+            {
+                FpvFeedCamera.Detach();
+                _usingLocal = false;
+            }
         }
     }
 }

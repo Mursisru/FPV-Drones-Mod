@@ -31,12 +31,19 @@ namespace FPVMod.Network
 
             Unit? unit = launcher.OwnerUnit;
             if (unit == null)
+            {
+                FpvPlugin.ModLogger?.LogWarning("FPV launch: launcher has no unit.");
                 return;
+            }
 
-            FpvMapLaunchPanelTarget.Current = launcher;
+            FpvLauncherSelectBridge.PendingLauncher = launcher;
+            FpvLauncherSelectBridge.LaunchTarget = launcher;
 
             NetworkManagerNuclearOption? nm = NetworkManagerNuclearOption.i;
-            if (nm?.Server?.Active == true && nm.Client?.Active != true)
+
+            // Listen-server / host: Server.Active && Client.Active — must spawn locally (Begin on host).
+            // Old path sent Client.Send and never called Begin on host → "Select Aircraft does nothing".
+            if (nm?.Server?.Active == true)
             {
                 TryServerLaunch(unit.persistentID, null);
                 return;
@@ -61,11 +68,26 @@ namespace FPVMod.Network
         internal static void OnLaunchResult(INetworkPlayer conn, FpvLaunchResultMsg msg)
         {
             if (!msg.Success)
+            {
+                FpvPlugin.ModLogger?.LogWarning("FPV launch result: failed.");
                 return;
+            }
+
             Missile? drone = FindMissile(msg.DroneId);
-            FpvLauncher? launcher = FpvMapLaunchPanelTarget.Current;
-            if (drone != null && launcher != null)
-                FpvControlSession.Begin(drone, launcher);
+            FpvLauncher? launcher = FpvLauncherSelectBridge.LaunchTarget ?? FpvLauncherSelectBridge.PendingLauncher;
+            if (drone == null)
+            {
+                FpvPlugin.ModLogger?.LogWarning($"FPV launch result: drone {msg.DroneId} not found yet.");
+                return;
+            }
+            if (launcher == null)
+            {
+                FpvPlugin.ModLogger?.LogWarning("FPV launch result: no LaunchTarget.");
+                return;
+            }
+
+            FpvLauncherSelectBridge.AfterLaunch();
+            FpvControlSession.Begin(drone, launcher);
         }
 
         private static void TryServerLaunch(PersistentID launcherId, INetworkPlayer? requester)
@@ -73,6 +95,8 @@ namespace FPVMod.Network
             FpvLauncher? launcher = FindLauncher(launcherId);
             if (launcher == null || !launcher.CanLaunch())
             {
+                FpvPlugin.ModLogger?.LogWarning("FPV server launch: launcher missing/not ready.");
+                FpvLauncherSelectBridge.ResetLaunchGate();
                 Reply(requester, PersistentID.None, false);
                 return;
             }
@@ -80,18 +104,14 @@ namespace FPVMod.Network
             Unit? owner = launcher.OwnerUnit;
             if (owner == null || owner.disabled)
             {
+                FpvLauncherSelectBridge.ResetLaunchGate();
                 Reply(requester, PersistentID.None, false);
                 return;
             }
 
             if (!IsFriendly(owner))
             {
-                Reply(requester, PersistentID.None, false);
-                return;
-            }
-
-            if (!launcher.TryConsumeLaunch())
-            {
+                FpvLauncherSelectBridge.ResetLaunchGate();
                 Reply(requester, PersistentID.None, false);
                 return;
             }
@@ -100,25 +120,65 @@ namespace FPVMod.Network
             Spawner? spawner = NetworkSceneSingleton<Spawner>.i;
             if (def == null || spawner == null)
             {
+                FpvPlugin.ModLogger?.LogError("FPV server launch: DroneDefinition or Spawner null.");
+                FpvLauncherSelectBridge.ResetLaunchGate();
                 Reply(requester, PersistentID.None, false);
                 return;
             }
 
-            Vector3 pos = owner.transform.position + owner.transform.up * 3f + owner.transform.forward * 2f;
-            Vector3 vel = owner.transform.forward * 5f;
-            Missile drone = spawner.SpawnMissile(def, pos, owner.transform.rotation, vel, null, owner);
-            PrefabFactory.StampDroneInstance(drone.gameObject);
-            FpvAiProfile.Apply(drone, owner);
+            // Soft climb-out — clear of truck without rocket punch.
+            Vector3 pos = owner.transform.position + owner.transform.up * 8f + owner.transform.forward * 6f;
+            Vector3 vel = owner.transform.forward * 18f + owner.transform.up * 6f;
+            Missile drone;
+            try
+            {
+                drone = spawner.SpawnMissile(def, pos, owner.transform.rotation, vel, null, owner);
+            }
+            catch (System.Exception ex)
+            {
+                FpvPlugin.ModLogger?.LogError($"FPV SpawnMissile: {ex}");
+                FpvLauncherSelectBridge.ResetLaunchGate();
+                Reply(requester, PersistentID.None, false);
+                return;
+            }
+
+            if (drone == null)
+            {
+                FpvLauncherSelectBridge.ResetLaunchGate();
+                Reply(requester, PersistentID.None, false);
+                return;
+            }
+
+            try
+            {
+                PrefabFactory.StampDroneInstance(drone.gameObject);
+                FpvAiProfile.Apply(drone, owner);
+            }
+            catch (System.Exception ex)
+            {
+                FpvPlugin.ModLogger?.LogError($"FPV stamp/profile: {ex}");
+            }
 
             FpvDroneTag tag = drone.GetComponent<FpvDroneTag>() ?? drone.gameObject.AddComponent<FpvDroneTag>();
             tag.SourceLauncher = launcher;
 
-            if (requester == null)
-                FpvControlSession.Begin(drone, launcher);
-            else
-                Reply(requester, drone.persistentID, true);
+            if (!launcher.TryConsumeLaunch())
+            {
+                FpvPlugin.ModLogger?.LogWarning("FPV launch: ammo consume failed after spawn.");
+            }
 
-            FpvMapLaunchPanel.Refresh();
+            FpvPlugin.ModLogger?.LogInfo($"FPV spawned drone {drone.persistentID} from {owner.unitName}.");
+
+            if (requester == null)
+            {
+                // Collapse map first so Camera.main is the gameplay cam, then possess.
+                FpvLauncherSelectBridge.AfterLaunch();
+                FpvControlSession.Begin(drone, launcher);
+            }
+            else
+            {
+                Reply(requester, drone.persistentID, true);
+            }
         }
 
         private static void Reply(INetworkPlayer? conn, PersistentID droneId, bool ok)
@@ -155,10 +215,5 @@ namespace FPVMod.Network
             }
             return null;
         }
-    }
-
-    internal static class FpvMapLaunchPanelTarget
-    {
-        internal static FpvLauncher? Current { get; set; }
     }
 }

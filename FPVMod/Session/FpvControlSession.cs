@@ -26,6 +26,7 @@ namespace FPVMod.Session
             Drone = drone;
             Launcher = launcher;
             Active = true;
+            FpvInputBridge.ResetSession();
 
             FpvDroneTag? tag = drone.GetComponent<FpvDroneTag>();
             if (tag != null)
@@ -38,6 +39,9 @@ namespace FPVMod.Session
 
             FpvCameraRig.Attach(drone);
             FpvOsdCanvas.Show();
+
+            FpvAcroController? acro = drone.GetComponent<FpvAcroController>();
+            acro?.BoostLaunch(0.4f);
         }
 
         internal static void End()
@@ -68,19 +72,23 @@ namespace FPVMod.Session
                 return;
             }
 
+            FpvOsdCanvas.TickPauseUi();
+            FpvFeedCamera.TickPauseUi();
+
+            if (FpvUiGate.BlocksFlightInput)
+            {
+                FpvInputBridge.Freeze();
+                return;
+            }
+
             if (GameManager.playerInput != null)
                 FpvInputBridge.Poll(GameManager.playerInput);
 
             FpvLinkLevel link = FpvLinkQuality.Evaluate(Drone, Launcher);
-            FpvInputBridge.LagBlend = FpvLinkQuality.InputBlend;
             FpvOsdCanvas.UpdateLink(link);
 
-            if (link == FpvLinkLevel.Lost)
-            {
-                FpvInputBridge.Freeze();
-                if (FpvLinkQuality.LostTimeoutElapsed)
-                    End();
-            }
+            if (link == FpvLinkLevel.Lost && FpvLinkQuality.LostTimeoutElapsed)
+                End();
 
             if (Drone.GetComponent<FpvAcroController>() is { Battery01: var b } && b <= 0f)
                 End();

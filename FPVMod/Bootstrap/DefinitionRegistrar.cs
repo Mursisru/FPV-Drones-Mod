@@ -60,6 +60,7 @@ namespace FPVMod.Bootstrap
                 md.length = 2.5f;
                 md.width = 2.5f;
                 md.height = 0.8f;
+                md.mass = FpvConstants.DroneMassKg;
                 DisabledField?.SetValue(md, false);
                 DroneDefinition = md;
                 return md;
@@ -70,12 +71,13 @@ namespace FPVMod.Bootstrap
             def.jsonKey = FpvConstants.DroneDefKey;
             def.unitName = "FPV Kamikaze Drone";
             def.bogeyName = "FPV Drone";
-            def.description = "Manually controlled FPV loitering munition. 5 min battery, 25 kg warhead.";
+            def.description = "Manually controlled FPV loitering munition. 50 kg AUW, 40 kg warhead, 5 min battery.";
             def.value = FpvConstants.DroneCost;
             def.radarSize = FpvConstants.RadarSize;
             def.length = 2.5f;
             def.width = 2.5f;
             def.height = 0.8f;
+            def.mass = FpvConstants.DroneMassKg;
             def.spawnOffset = Vector3.zero;
             def.unitPrefab = template.unitPrefab;
             def.mapIconSize = 0.6f;

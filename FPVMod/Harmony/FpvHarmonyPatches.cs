@@ -1,4 +1,5 @@
 using System;
+using FPVMod.Access;
 using FPVMod.Bootstrap;
 using FPVMod.Drone;
 using FPVMod.Economy;
@@ -219,31 +220,55 @@ namespace FPVMod.HarmonyPatches
         }
     }
 
-    [HarmonyPatch(typeof(UnitMapIcon), nameof(UnitMapIcon.ClickIcon))]
-    internal static class UnitMapIconClickPatch
+    /// <summary>
+    /// Motor.Thrust still runs in FixedUpdate and AddForce along forward — Burnout only stops FX.
+    /// Skip entirely for FPV; multicopter thrust is FpvAcroController only.
+    /// </summary>
+    [HarmonyPatch(typeof(Missile), "MotorThrust")]
+    internal static class MissileMotorThrustPatch
     {
-        private static void Postfix(UnitMapIcon __instance)
+        private static bool Prefix(Missile __instance) =>
+            __instance.GetComponent<FpvDroneTag>() == null;
+    }
+
+    [HarmonyPatch(typeof(GameplayUI), nameof(GameplayUI.ShowSelectAirbase))]
+    internal static class GameplayUiShowSelectAirbasePatch
+    {
+        private static void Postfix() => FpvLauncherSelectBridge.RefreshVanillaPanel();
+    }
+
+    [HarmonyPatch(typeof(GameplayUI), nameof(GameplayUI.SelectAirbase))]
+    internal static class GameplayUiSelectAirbasePatch
+    {
+        private static void Prefix() => FpvLauncherSelectBridge.Clear();
+    }
+
+    [HarmonyPatch(typeof(GameplayUI), nameof(GameplayUI.SelectAircraft))]
+    internal static class GameplayUiSelectAircraftPatch
+    {
+        private static bool Prefix()
         {
-            try
-            {
-                Unit? unit = __instance.unit;
-                if (unit == null)
-                    return;
-                FpvLauncher? launcher = unit.GetComponentInChildren<FpvLauncher>();
-                if (launcher == null)
-                    return;
-
-                if (GameManager.GetLocalHQ(out FactionHQ? hq) && unit.NetworkHQ != hq)
-                    return;
-
-                FpvMapLaunchPanelTarget.Current = launcher;
-                FpvMapLaunchPanel.Show(launcher);
-            }
-            catch
-            {
-                // ignore
-            }
+            // true = handled FPV (skip vanilla hangar menu); false = not FPV → run vanilla
+            return !FpvLauncherSelectBridge.TryHandleSelectAircraft();
         }
+    }
+
+    [HarmonyPatch(typeof(GameplayUI), nameof(GameplayUI.HideSelectAirbase))]
+    internal static class GameplayUiHideSelectAirbasePatch
+    {
+        private static void Postfix() => FpvLauncherSelectBridge.ClearSelectionOnly();
+    }
+
+    [HarmonyPatch(typeof(DynamicMap), "UpdateMap")]
+    internal static class DynamicMapUpdateMapPatch
+    {
+        private static void Postfix(DynamicMap __instance) => FpvLauncherMapIcons.Tick(__instance);
+    }
+
+    [HarmonyPatch(typeof(DynamicMap), nameof(DynamicMap.Minimize))]
+    internal static class DynamicMapMinimizePatch
+    {
+        private static void Postfix() => FpvLauncherSelectBridge.ClearSelectionOnly();
     }
 
     [HarmonyPatch(typeof(PilotPlayerState), "PlayerAxisControls")]
@@ -251,6 +276,8 @@ namespace FPVMod.HarmonyPatches
     {
         private static bool Prefix() => !FpvControlSession.Active;
     }
+
+    // FPV Detonate handled in FpvDetonatePatch.cs (local FX at drone position).
 
     [HarmonyPatch(typeof(UnitPart), nameof(UnitPart.TakeDamage))]
     internal static class FpvLaserVulnerabilityPatch
@@ -261,6 +288,34 @@ namespace FPVMod.HarmonyPatches
                 return;
             blastDamage *= 3f;
             fireDamage *= 3f;
+        }
+    }
+
+    /// <summary>Keep weapon-station ammo labels on FPV drones after turret init.</summary>
+    [HarmonyPatch(typeof(Turret), "Turret_OnInitialize")]
+    internal static class TurretInitFpvLauncherPatch
+    {
+        private static void Postfix(Turret __instance)
+        {
+            UnitPart? part = __instance.GetComponentInParent<UnitPart>();
+            Unit? unit = part?.parentUnit;
+            if (unit == null)
+                return;
+            FpvLauncher? launcher = unit.GetComponentInChildren<FpvLauncher>();
+            if (launcher != null)
+                FpvLauncherAmmoUi.Sync(unit, launcher);
+        }
+    }
+
+    /// <summary>Override MLRS ammo sync with FpvLauncher drone counts.</summary>
+    [HarmonyPatch(typeof(Unit), "UserCode_RpcSyncAmmoCount_-1454761002")]
+    internal static class UnitRpcSyncAmmoFpvPatch
+    {
+        private static void Postfix(Unit __instance)
+        {
+            FpvLauncher? launcher = __instance.GetComponentInChildren<FpvLauncher>();
+            if (launcher != null)
+                FpvLauncherAmmoUi.Sync(__instance, launcher);
         }
     }
 }

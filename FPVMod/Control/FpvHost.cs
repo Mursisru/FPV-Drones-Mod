@@ -61,6 +61,8 @@ namespace FPVMod.Control
 
             SceneManager.sceneUnloaded += _ => OnSceneReset();
             FpvNetworkHub.EnsureHandlers();
+            FpvMissileCameraAcroPatches.TryPatch(_harmony!);
+            FpvMissileCameraHudPatches.TryPatch(_harmony!);
         }
 
         private void Update()
@@ -70,22 +72,27 @@ namespace FPVMod.Control
 
             FpvNetworkHub.EnsureHandlers();
             FpvLobbyGate.Tick();
+            if (_harmony != null)
+            {
+                FpvMissileCameraAcroPatches.TryPatch(_harmony);
+                FpvMissileCameraHudPatches.TryPatch(_harmony);
+            }
 
             if (Time.unscaledTime >= _nextBootstrap)
             {
                 _nextBootstrap = Time.unscaledTime + 2f;
                 TryBootstrapDefinitions();
+                FpvLauncherMapIcons.SyncAll();
             }
 
             FpvControlSession.Tick();
             FpvInputRpc.Tick();
             FpvOsdCanvas.RefreshTelemetry();
+            FpvCameraRig.LateTick();
             FpvResupplyBridge.Tick();
 
             if (DynamicMap.mapMaximized)
-                FpvMapLaunchPanel.Refresh();
-            else
-                FpvMapLaunchPanel.Hide();
+                FpvLauncherSelectBridge.RefreshVanillaPanel();
         }
 
         private void FixedUpdate()
@@ -109,6 +116,8 @@ namespace FPVMod.Control
             FpvLobbyGate.Reset();
             FpvPendingPlace.End();
             FpvEditorListRefresh.ResetFlag();
+            FpvLauncherMapIcons.ClearAll();
+            FpvLauncherSelectBridge.Clear();
             // Keep Encyclopedia Lookup defs + embedded bundle alive across scenes (RC pattern).
             DefinitionRegistrar.SoftReset();
         }

@@ -12,15 +12,30 @@ namespace FPVMod
 
         internal const int LauncherCapacity = 8;
         internal const float LauncherCooldownSec = 6f;
+
+        /// <summary>All-up mass (airframe + battery + 40 kg warhead).</summary>
         internal const float DroneMassKg = 50f;
+        /// <summary>Warhead / blast yield mass (kg TNT-equivalent for game blast).</summary>
+        internal const float WarheadMassKg = 40f;
+        internal const float DroneSpanM = 1.5f;
+        /// <summary>Max thrust/weight at zero airspeed (snappy climb). Lapses with speed.</summary>
+        internal const float DroneMaxTwr = 20f;
+        /// <summary>Parasite Cd — bleeds energy; with thrust lapse ≈270 km/h soft ceiling.</summary>
+        internal const float DroneCd = 0.95f;
+        /// <summary>Design cruise soft asymptote (km/h) — not a hard clamp.</summary>
+        internal const float DesignMaxSpeedKmh = 270f;
+        internal const float DesignMaxSpeedMs = DesignMaxSpeedKmh / 3.6f;
+        /// <summary>Thrust→0 reference (slightly above design so level flight can settle ~270).</summary>
+        internal const float ThrustLapseRefMs = 88f;
 
         internal const float BatterySeconds = 300f;
-        internal const float MaxSpeedKmh = 250f;
-        internal const float MaxSpeedMs = MaxSpeedKmh / 3.6f;
+        /// <summary>OSD reference — physics uses DesignMaxSpeed* + lapse/drag.</summary>
+        internal const float MaxSpeedKmh = DesignMaxSpeedKmh;
 
-        internal const float BlastYieldKg = 25f;
+        internal const float BlastYieldKg = WarheadMassKg;
         internal const float PierceAp = 700f;
-        internal const float ArmingDelaySec = 2f;
+        /// <summary>Seconds after launch before impact fuse arms (must leave launcher ~12 m).</summary>
+        internal const float ArmingDelaySec = 3f;
 
         internal const float RadarSize = 0.001f;
         internal const float DroneMaxRadius = 1.5f;
@@ -42,10 +57,9 @@ namespace FPVMod
         internal const float CameraFov = 95f;
         internal const float CameraPitchDeg = 17f;
 
-        internal const float StabilizerStrength = 0.18f;
-        internal const float AcroTorque = 45f;
-        internal const float AcroThrust = 120f;
-
         internal const string BundleResourceName = "FPVMod.Resources.fpvmod_assets";
+
+        /// <summary>Orange tint for launcher map pick icons (vanilla airbase sprite).</summary>
+        internal static readonly UnityEngine.Color LauncherMapIconColor = new UnityEngine.Color(1f, 0.48f, 0.05f, 1f);
     }
 }

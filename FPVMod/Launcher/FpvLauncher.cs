@@ -17,8 +17,10 @@ namespace FPVMod.Launcher
 
         private void Update()
         {
-            if (CooldownRemaining > 0f)
-                CooldownRemaining = Mathf.Max(0f, CooldownRemaining - Time.deltaTime);
+            if (CooldownRemaining <= 0f)
+                return;
+            CooldownRemaining = Mathf.Max(0f, CooldownRemaining - Time.deltaTime);
+            RefreshAmmoUi();
         }
 
         internal FpvLauncherState GetState()
@@ -38,6 +40,7 @@ namespace FPVMod.Launcher
                 return false;
             Ammo--;
             CooldownRemaining = FpvConstants.LauncherCooldownSec;
+            RefreshAmmoUi();
             return true;
         }
 
@@ -46,7 +49,10 @@ namespace FPVMod.Launcher
             if (count <= 0)
                 return;
             Ammo = Mathf.Min(FpvConstants.LauncherCapacity, Ammo + count);
+            RefreshAmmoUi();
         }
+
+        private void RefreshAmmoUi() => FpvLauncherAmmoUi.Sync(OwnerUnit, this);
 
         internal Unit OwnerUnit => GetComponentInParent<Unit>() ?? GetComponent<Unit>()!;
     }

@@ -1,3 +1,4 @@
+using FPVMod.Access;
 using FPVMod.Drone;
 using FPVMod.Launcher;
 using UnityEngine;
@@ -26,8 +27,12 @@ namespace FPVMod.Bootstrap
             if (go.GetComponent<FpvLauncher>() == null)
                 go.AddComponent<FpvLauncher>();
 
+            FpvLauncher launcherComp = go.GetComponent<FpvLauncher>()!;
             FpvPrefabUtil.IsolateMaterials(go);
             FpvPrefabUtil.StripOffensiveSystems(go);
+            FpvLauncherAmmoUi.Sync(vehicle, launcherComp);
+            FpvLauncherMapIcons.Register(launcherComp);
+
             go.hideFlags = HideFlags.None;
             if (!go.activeSelf)
                 go.SetActive(true);
@@ -58,6 +63,7 @@ namespace FPVMod.Bootstrap
 
             ApplyDroneVisuals(go);
             EnsureRigidbody(go, FpvConstants.DroneMassKg);
+            FpvMotorKill.KillAll(missile);
 
             go.hideFlags = HideFlags.None;
             if (!go.activeSelf)
@@ -167,8 +173,9 @@ namespace FPVMod.Bootstrap
             if (rb == null)
                 rb = root.AddComponent<Rigidbody>();
             rb.mass = mass;
-            rb.drag = 0.08f;
-            rb.angularDrag = 0.5f;
+            rb.useGravity = true;
+            rb.drag = 0f;
+            rb.angularDrag = 0.15f;
         }
     }
 }

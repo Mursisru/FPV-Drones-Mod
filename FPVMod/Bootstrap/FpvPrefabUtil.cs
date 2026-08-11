@@ -224,6 +224,7 @@ namespace FPVMod.Bootstrap
                         mat.color = Color.white;
                     }
 
+                    DisableEmission(mat);
                     instanced[i] = mat;
                 }
 
@@ -240,7 +241,7 @@ namespace FPVMod.Bootstrap
 
         private static void CopyMaterialColorAndMaps(Material src, Material dst)
         {
-            dst.color = src.color;
+            dst.color = ClampAlbedoColor(src.color);
             if (src.mainTexture != null && dst.HasProperty("_MainTex"))
             {
                 dst.mainTexture = src.mainTexture;
@@ -249,6 +250,28 @@ namespace FPVMod.Bootstrap
             }
 
             CopySecondaryMaps(src, dst);
+        }
+
+        private static Color ClampAlbedoColor(Color c)
+        {
+            float max = Mathf.Max(c.r, c.g, c.b, 1e-4f);
+            if (max <= 1f)
+                return c;
+            return new Color(c.r / max, c.g / max, c.b / max, c.a);
+        }
+
+        /// <summary>Strip Blender/Standard emission — stops self-lit yellow glow in NO.</summary>
+        private static void DisableEmission(Material mat)
+        {
+            if (mat.HasProperty("_EmissionColor"))
+                mat.SetColor("_EmissionColor", Color.black);
+            if (mat.HasProperty("_EmissiveColor"))
+                mat.SetColor("_EmissiveColor", Color.black);
+            if (mat.HasProperty("_EmissionMap"))
+                mat.SetTexture("_EmissionMap", null);
+
+            mat.DisableKeyword("_EMISSION");
+            mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.EmissiveIsBlack;
         }
 
         private static void ApplyAlbedo(Material mat, Texture albedo, Material? src)
@@ -268,8 +291,8 @@ namespace FPVMod.Bootstrap
                 mat.SetFloat("_Glossiness", 0.35f);
             if (mat.HasProperty("_Metallic"))
                 mat.SetFloat("_Metallic", 0.05f);
-            if (mat.HasProperty("_EmissionColor"))
-                mat.SetColor("_EmissionColor", Color.black);
+
+            DisableEmission(mat);
         }
 
         private static void CopySecondaryMaps(Material src, Material dst)

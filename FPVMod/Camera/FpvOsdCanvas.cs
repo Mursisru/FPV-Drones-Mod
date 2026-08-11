@@ -7,15 +7,17 @@ using UnityEngine.UI;
 
 namespace FPVMod.FpvView
 {
+    /// <summary>Lightweight FPV HUD (fallback / overlay). FS FLIR rewritten via Harmony when MC present.</summary>
     internal static class FpvOsdCanvas
     {
         private static GameObject? _root;
+        private static CanvasGroup? _group;
         private static TextMeshProUGUI? _link;
         private static TextMeshProUGUI? _spd;
         private static TextMeshProUGUI? _alt;
-        private static TextMeshProUGUI? _batt;
+        private static TextMeshProUGUI? _col;
         private static TextMeshProUGUI? _arm;
-        private static TextMeshProUGUI? _rng;
+        private static TextMeshProUGUI? _vsi;
         private static Image? _staticOverlay;
 
         internal static void Show()
@@ -23,6 +25,7 @@ namespace FPVMod.FpvView
             EnsureUi();
             if (_root != null)
                 _root.SetActive(true);
+            SetHudOnly();
         }
 
         internal static void Hide()
@@ -31,15 +34,31 @@ namespace FPVMod.FpvView
                 _root.SetActive(false);
         }
 
+        internal static void SetHudOnly()
+        {
+            if (_group == null)
+                return;
+            _group.blocksRaycasts = false;
+            _group.interactable = false;
+        }
+
+        internal static void TickPauseUi()
+        {
+            if (_root == null || !_root.activeSelf || _group == null)
+                return;
+            _group.alpha = FpvUiGate.MenuOpen ? 0f : 1f;
+            SetHudOnly();
+        }
+
         internal static void UpdateLink(FpvLinkLevel level)
         {
             if (_link == null)
                 return;
             _link.text = level switch
             {
-                FpvLinkLevel.Full => "LINK: GOOD",
-                FpvLinkLevel.Degraded => "LINK: WEAK",
-                _ => "LINK: LOST"
+                FpvLinkLevel.Full => "LINK GOOD",
+                FpvLinkLevel.Degraded => "LINK WEAK",
+                _ => "LINK LOST"
             };
             if (_staticOverlay != null)
                 _staticOverlay.color = new Color(1f, 1f, 1f, level == FpvLinkLevel.Lost ? 0.65f : level == FpvLinkLevel.Degraded ? 0.2f : 0f);
@@ -56,30 +75,19 @@ namespace FPVMod.FpvView
             FpvWarhead? wh = drone.GetComponent<FpvWarhead>();
 
             if (_spd != null)
-                _spd.text = $"SPD: {ac?.SpeedKmh ?? 0f:0} km/h";
+                _spd.text = $"SPD {ac?.SpeedKmh ?? 0f:0} km/h";
             if (_alt != null)
-                _alt.text = $"ALT: {drone.radarAlt:0} m";
-            if (_batt != null)
-                _batt.text = $"BATT: {(ac?.Battery01 ?? 0f) * 100f:0}%";
+                _alt.text = $"ALT {drone.radarAlt:0} m";
+            if (_col != null)
+                _col.text = ac != null
+                    ? $"COL {ac.Collective01 * 100f:0}%  BATT {ac.Battery01 * 100f:0}%"
+                    : "COL ---";
+            if (_vsi != null)
+                _vsi.text = ac != null
+                    ? $"VSI {ac.VerticalSpeedMs:+0.0;-0.0;0.0} m/s"
+                    : "VSI ---";
             if (_arm != null)
                 _arm.text = wh != null && wh.IsSafe ? "SAFE" : "ARMED";
-
-            if (_rng != null)
-            {
-                float rng = RaycastRange(drone);
-                _rng.text = rng > 0f ? $"RNG: {rng:0} m" : "RNG: ---";
-            }
-        }
-
-        private static float RaycastRange(Missile drone)
-        {
-            Transform cam = drone.transform;
-            FpvCameraRigMount? mount = cam.GetComponentInChildren<FpvCameraRigMount>();
-            Vector3 origin = mount != null ? mount.transform.position : cam.position;
-            Vector3 dir = mount != null ? mount.transform.forward : cam.forward;
-            return Physics.Raycast(origin, dir, out RaycastHit hit, 5000f, PhysicsLayers.StaticsMask | PhysicsLayers.ShipsMask)
-                ? hit.distance
-                : 0f;
         }
 
         private static void EnsureUi()
@@ -91,17 +99,19 @@ namespace FPVMod.FpvView
             Object.DontDestroyOnLoad(_root);
             Canvas canvas = _root.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 500;
+            canvas.sortingOrder = 40;
             _root.AddComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            _root.AddComponent<GraphicRaycaster>();
+            _group = _root.AddComponent<CanvasGroup>();
+            _group.blocksRaycasts = false;
+            _group.interactable = false;
 
             _staticOverlay = CreateImage(_root.transform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(2000, 2000), Color.clear);
-            _link = CreateLabel(_root.transform, new Vector2(0.02f, 0.92f), "LINK: ---");
-            _spd = CreateLabel(_root.transform, new Vector2(0.02f, 0.86f), "SPD: ---");
-            _alt = CreateLabel(_root.transform, new Vector2(0.02f, 0.80f), "ALT: ---");
-            _batt = CreateLabel(_root.transform, new Vector2(0.02f, 0.74f), "BATT: ---");
+            _link = CreateLabel(_root.transform, new Vector2(0.02f, 0.92f), "LINK ---");
+            _spd = CreateLabel(_root.transform, new Vector2(0.02f, 0.86f), "SPD ---");
+            _alt = CreateLabel(_root.transform, new Vector2(0.02f, 0.80f), "ALT ---");
+            _vsi = CreateLabel(_root.transform, new Vector2(0.02f, 0.74f), "VSI ---");
+            _col = CreateLabel(_root.transform, new Vector2(0.02f, 0.68f), "COL ---");
             _arm = CreateLabel(_root.transform, new Vector2(0.85f, 0.92f), "SAFE");
-            _rng = CreateLabel(_root.transform, new Vector2(0.85f, 0.86f), "RNG: ---");
         }
 
         private static TextMeshProUGUI CreateLabel(Transform parent, Vector2 anchor, string text)
@@ -113,11 +123,12 @@ namespace FPVMod.FpvView
             rt.anchorMax = anchor;
             rt.pivot = new Vector2(0f, 1f);
             rt.anchoredPosition = Vector2.zero;
-            rt.sizeDelta = new Vector2(400, 40);
+            rt.sizeDelta = new Vector2(480, 40);
             TextMeshProUGUI tmp = go.AddComponent<TextMeshProUGUI>();
             tmp.fontSize = 22;
             tmp.color = new Color(0.2f, 1f, 0.35f, 0.95f);
             tmp.text = text;
+            tmp.raycastTarget = false;
             return tmp;
         }
 
@@ -133,6 +144,7 @@ namespace FPVMod.FpvView
             rt.sizeDelta = size;
             Image img = go.AddComponent<Image>();
             img.color = color;
+            img.raycastTarget = false;
             return img;
         }
     }
