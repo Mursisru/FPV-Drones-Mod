@@ -42,6 +42,33 @@ namespace FPVMod.HarmonyPatches
         }
     }
 
+    /// <summary>
+    /// After mission supplies load → inject FPV packages into VehicleSupply.
+    /// Vanilla DeployVehicles + GroundVehicle.navigateToObjectives do the rest.
+    /// </summary>
+    [HarmonyPatch(typeof(FactionHQ), "OnMissionLoad")]
+    internal static class FactionHqOnMissionLoadPatch
+    {
+        private static void Postfix(FactionHQ __instance, Mission mission) =>
+            FpvMissionSupplyInject.OnMissionLoad(__instance, mission);
+    }
+
+    /// <summary>
+    /// Depot spawn uses unitPrefab only — stock MLRS definition on clone.
+    /// Mark pending so SpawnVehicle postfix stamps FPV launcher identity.
+    /// </summary>
+    [HarmonyPatch(typeof(VehicleDepot), nameof(VehicleDepot.TrySpawnVehicle))]
+    internal static class VehicleDepotTrySpawnVehiclePatch
+    {
+        private static void Prefix(VehicleDefinition vehicleDefinition)
+        {
+            if (DefinitionRegistrar.IsFpvLauncher(vehicleDefinition))
+                FpvPendingPlace.Begin(vehicleDefinition);
+        }
+
+        private static void Postfix() => FpvPendingPlace.End();
+    }
+
     /// <summary>Tracks mission-editor placing definition (vanilla Instantate keeps stock unit.definition).</summary>
     internal static class FpvPendingPlace
     {

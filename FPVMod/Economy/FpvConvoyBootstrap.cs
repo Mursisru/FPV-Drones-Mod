@@ -5,6 +5,7 @@ using UnityEngine;
 
 namespace FPVMod.Economy
 {
+    /// <summary>Player Contribute UI only — AI uses VehicleSupply via FpvMissionSupplyInject.</summary>
     internal static class FpvConvoyBootstrap
     {
         private static bool _done;
@@ -43,36 +44,24 @@ namespace FPVMod.Economy
                     return;
             }
 
-            VehicleDefinition? sam = Encyclopedia.i?.vehicles?.Find(v =>
-                v != null && !string.IsNullOrEmpty(v.jsonKey) &&
-                v.jsonKey.IndexOf("SAM", System.StringComparison.OrdinalIgnoreCase) >= 0);
-
             var package = new Faction.ConvoyGroup
             {
                 Name = FpvConstants.ConvoyName,
                 Constituents = new List<Faction.ConvoyUnit>
                 {
-                    new() { Type = DefinitionRegistrar.LauncherDefinition, Count = 1 },
-                    new() { Type = FindAmmoTruck(), Count = 1 }
+                    new() { Type = DefinitionRegistrar.LauncherDefinition, Count = 1 }
                 }
             };
 
+            VehicleDefinition? sam = FpvStrikePackageDefs.BestRadarSam();
             if (sam != null)
-            {
                 package.Constituents.Add(new Faction.ConvoyUnit { Type = sam, Count = 1 });
-                package.Constituents.Add(new Faction.ConvoyUnit { Type = sam, Count = 1 });
-            }
+
+            VehicleDefinition? ammo = FpvStrikePackageDefs.AmmoTruck();
+            if (ammo != null)
+                package.Constituents.Add(new Faction.ConvoyUnit { Type = ammo, Count = 1 });
 
             groups.Add(package);
-        }
-
-        private static UnitDefinition FindAmmoTruck()
-        {
-            VehicleDefinition? truck = Encyclopedia.i?.vehicles?.Find(v =>
-                v != null && v.jsonKey != null &&
-                (v.jsonKey.IndexOf("truck", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
-                 v.jsonKey.IndexOf("munition", System.StringComparison.OrdinalIgnoreCase) >= 0));
-            return truck ?? DefinitionRegistrar.LauncherDefinition!;
         }
     }
 }

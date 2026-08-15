@@ -54,6 +54,7 @@ namespace FPVMod.FpvView
         private static AntialiasingQuality _lastMirrorAaQuality;
         private static bool _lastMirrorDithering;
         private static bool _lastMirrorStopNaN;
+        private static int _lastMirrorVolumeLayers = int.MinValue;
 
         internal static void BeforeRender(Camera feedCamera, bool forceLdr = false)
         {
@@ -146,6 +147,7 @@ namespace FPVMod.FpvView
             _lastMirrorReference = null;
             _lastMirrorCulling = int.MinValue;
             _lastMirrorRendererIndex = int.MinValue;
+            _lastMirrorVolumeLayers = int.MinValue;
         }
 
         private static void RegisterPipelineHooks()
@@ -268,12 +270,17 @@ namespace FPVMod.FpvView
             UniversalAdditionalCameraData refUrp = reference.GetUniversalAdditionalCameraData();
             int rendererIndex = GetRendererIndex(refUrp);
             bool wantHdr = !forceLdr && reference.allowHDR;
-            bool wantPp = _pipelineInfrared || _pipelineNightVision;
+            // COLOR pipeline: world URP volumes. IR blit: off. NVG/IR volume: on.
+            bool wantPp = _pipelineInfrared
+                || _pipelineNightVision
+                || _pipelineFeedCamera != null;
+            // MC: reference | Effects | TransparentFX. FPV also Water|Sun.
             int desiredCulling = reference.cullingMask
                 | (int)PhysicsLayers.EffectsMask
                 | (int)PhysicsLayers.TransparentFXMask
                 | (int)PhysicsLayers.WaterMask
                 | (int)PhysicsLayers.SunMask;
+            int desiredVolumeLayers = ResolveVolumeLayerMask(refUrp);
 
             bool dirty = !ReferenceEquals(reference, _lastMirrorReference)
                 || _lastMirrorCulling != desiredCulling
@@ -289,7 +296,9 @@ namespace FPVMod.FpvView
                 || _lastMirrorAaQuality != refUrp.antialiasingQuality
                 || _lastMirrorDithering != refUrp.dithering
                 || _lastMirrorStopNaN != refUrp.stopNaN
-                || feedUrp.renderPostProcessing != wantPp;
+                || _lastMirrorVolumeLayers != desiredVolumeLayers
+                || feedUrp.renderPostProcessing != wantPp
+                || feedCamera.cullingMask != desiredCulling;
 
             if (!dirty)
             {
@@ -306,6 +315,7 @@ namespace FPVMod.FpvView
             feedUrp.renderShadows = refUrp.renderShadows;
             feedUrp.renderPostProcessing = wantPp;
             feedUrp.volumeTrigger = feedCamera.transform;
+            feedUrp.volumeLayerMask = desiredVolumeLayers;
             feedUrp.antialiasing = refUrp.antialiasing;
             feedUrp.antialiasingQuality = refUrp.antialiasingQuality;
             feedUrp.dithering = refUrp.dithering;
@@ -327,6 +337,27 @@ namespace FPVMod.FpvView
             _lastMirrorAaQuality = refUrp.antialiasingQuality;
             _lastMirrorDithering = refUrp.dithering;
             _lastMirrorStopNaN = refUrp.stopNaN;
+            _lastMirrorVolumeLayers = desiredVolumeLayers;
+        }
+
+        /// <summary>World PP volumes live on PP layer; TargetCam may only expose TargetCamPP.</summary>
+        private static int ResolveVolumeLayerMask(UniversalAdditionalCameraData refUrp)
+        {
+            int mask = (int)refUrp.volumeLayerMask
+                | (int)PhysicsLayers.PPMask
+                | (int)PhysicsLayers.DefaultMask;
+
+            Camera? world = ResolveWorldCamera();
+            if (world != null)
+            {
+                try
+                {
+                    mask |= (int)world.GetUniversalAdditionalCameraData().volumeLayerMask;
+                }
+                catch { /* ignore */ }
+            }
+
+            return mask;
         }
 
         /// <summary>Prefer vanilla TargetCam (same AA/shadows/renderer as cockpit seeker).</summary>

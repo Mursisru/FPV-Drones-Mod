@@ -1,6 +1,6 @@
 # FPV Drones Mod
 
-![Version](https://img.shields.io/badge/version-2.3.0-blue)
+![Version](https://img.shields.io/badge/version-2.4.0-blue)
 ![BepInEx](https://img.shields.io/badge/BepInEx-5.x-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
@@ -16,7 +16,7 @@ BepInEx mod for **Nuclear Option** that adds a mobile FPV drone launcher and man
 - **Owned fullscreen FS** — Gunship HUD, LookAround, zoom, vision modes (WH/NVG/…) without MissileCamera
 - **Virtual possession** — control drones without hijacking the player aircraft slot
 - **Link quality** — range, line-of-sight, and jamming affect control latency and OSD static
-- **Economy** — "FPV Strike Package" convoy group ($900k)
+- **Economy** — "FPV Strike Package" convoy (launcher + R_SAM + ammo) and AI VehicleSupply inject on combat maps
 
 ## Installation
 
@@ -25,7 +25,7 @@ BepInEx mod for **Nuclear Option** that adds a mobile FPV drone launcher and man
    ```
    Nuclear Option/BepInEx/plugins/FPVMod.dll
    ```
-3. Launch the game. Check `BepInEx/LogOutput.log` for `FPV Drones Mod 2.3.0 loaded.`
+3. Launch the game. Check `BepInEx/LogOutput.log` for `FPV Drones Mod 2.4.0 loaded.`
 
 ## Usage
 

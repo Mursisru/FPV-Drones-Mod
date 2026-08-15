@@ -61,5 +61,16 @@ namespace FPVMod
 
         /// <summary>Orange tint for launcher map pick icons (vanilla airbase sprite).</summary>
         internal static readonly UnityEngine.Color LauncherMapIconColor = new UnityEngine.Color(1f, 0.48f, 0.05f, 1f);
+
+        // --- Battery / resupply radii (proximity refill; drive is vanilla) ---
+        internal const float BatteryResupplyRadiusM = 45f;
+
+        // --- Mission VehicleSupply inject (Escalation / Domination / etc.) ---
+        /// <summary>Packages (launcher+SAM+ammo each) added to each faction HQ at mission seed.</summary>
+        internal const int MissionSupplyPackages = 3;
+        /// <summary>Soft replenish interval when supply emptied (long Escalation). Tick also retries seed every 5s.</summary>
+        internal const float MissionResupplyIntervalSec = 180f;
+        /// <summary>Do not replenish while this many FPV launchers are still alive for the HQ.</summary>
+        internal const int MissionResupplyMaxAlive = 3;
     }
 }

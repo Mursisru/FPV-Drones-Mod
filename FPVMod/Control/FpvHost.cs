@@ -69,7 +69,18 @@ namespace FPVMod.Control
 
         private void Update()
         {
-            if (!FpvConfig.Enabled.Value || !FpvLobbyGate.FeaturesAllowed)
+            if (!FpvConfig.Enabled.Value)
+                return;
+
+            // Economy / VehicleSupply seed must run on host even before lobby presence settles.
+            if (Time.unscaledTime >= _nextBootstrap)
+            {
+                _nextBootstrap = Time.unscaledTime + 2f;
+                TryBootstrapDefinitions();
+            }
+            FpvMissionSupplyInject.TickReplenish();
+
+            if (!FpvLobbyGate.FeaturesAllowed)
                 return;
 
             FpvNetworkHub.EnsureHandlers();
@@ -77,16 +88,9 @@ namespace FPVMod.Control
             if (_harmony != null)
                 FpvBoomPatches.Ensure(_harmony);
 
-            if (Time.unscaledTime >= _nextBootstrap)
-            {
-                _nextBootstrap = Time.unscaledTime + 2f;
-                TryBootstrapDefinitions();
-                FpvLauncherMapIcons.SyncAll();
-            }
-
+            FpvLauncherMapIcons.SyncAll();
             FpvControlSession.Tick();
             FpvInputRpc.Tick();
-            // FS render is FpvFeedDriver WaitForEndOfFrame (MC parity) — not Update LateTick.
             FpvResupplyBridge.Tick();
 
             if (DynamicMap.mapMaximized)
@@ -118,6 +122,7 @@ namespace FPVMod.Control
             FpvLauncherSelectBridge.Clear();
             FpvImpactResolver.ClearDetonateGuards();
             FpvRenderPrep.ResetAll();
+            FpvMissionSupplyInject.ClearSession();
             Effects.FpvShaderBundle.SoftReset();
             // Keep Encyclopedia Lookup defs + embedded bundle alive across scenes (RC pattern).
             DefinitionRegistrar.SoftReset();

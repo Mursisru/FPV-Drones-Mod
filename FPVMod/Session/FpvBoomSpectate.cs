@@ -10,7 +10,7 @@ namespace FPVMod.Session
     /// </summary>
     internal static class FpvBoomSpectate
     {
-        private const float DurationSec = 3.6f;
+        private const float DurationSec = 4.5f;
 
         private static bool _active;
         private static float _endAtUnscaled = -1f;

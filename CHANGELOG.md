@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.4.0] — 2026-08-15
+
+### Added
+
+- Mission `VehicleSupply` inject for Escalation / Domination / Confrontation-style maps: launcher + best R_SAM + Rearmer ammo enter the vanilla depot deploy loop
+- Host tick retries seed until definitions are ready; soft replenish when supply is drained
+- Depot spawn stamps FPV launcher identity (`VehicleDepot` → pending place) so stock MLRS prefab becomes MSV Drone Launcher
+- Nearby Rearmer trucks top up launcher ammo without requiring drone `UnitStorage` stock
+
+### Changed
+
+- Strike Package convoy composition: 1 launcher + 1 R_SAM + 1 ammo truck (player Contribute UI)
+- Ground movement stays vanilla (`navigateToObjectives`); no custom battery path AI
+
+### Fixed
+
+- FPV packages never appearing mid-match when mission-load inject raced definitions or skipped combat gates
+
 ## [2.3.0] — 2026-08-11
 
 ### Added

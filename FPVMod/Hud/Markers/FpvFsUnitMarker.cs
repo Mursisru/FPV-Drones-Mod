@@ -41,13 +41,16 @@ namespace FPVMod.Hud
             _image = image;
             _rt = image.rectTransform;
             _alwaysMaximized = unit is Aircraft;
-            _baseScale = unit.definition != null ? unit.definition.iconSize : 1f;
+            float iconSize = unit.definition != null ? unit.definition.iconSize : 1f;
+            _baseScale = iconSize > 0.01f ? iconSize : 1f;
             _timeCreated = Time.timeSinceLevelLoad;
             _image.enabled = false;
             _image.raycastTarget = false;
             RefreshCustomize();
             AssessThreat();
             RefreshFactionVisual();
+            _rt.localScale = _customScale * Vector3.one;
+            ApplyColor();
         }
 
         internal static FpvFsUnitMarker? Create(RectTransform parent, Unit unit, Sprite sprite)
@@ -105,7 +108,9 @@ namespace FPVMod.Hud
         {
             float hmd = 30f;
             try { hmd = PlayerSettings.hmdIconSize; } catch { /* ignore */ }
-            _customScale = _baseScale * hmd;
+            if (hmd < 1f)
+                hmd = 30f;
+            _customScale = Mathf.Max(8f, _baseScale * hmd);
 
             try
             {
@@ -205,7 +210,8 @@ namespace FPVMod.Hud
                 return;
             }
 
-            if (Vector3.Dot(global - viewPos, camForward) < 0f)
+            // Use feed cam world axes (GlobalPosition delta can be huge / wrong for Dot).
+            if (Vector3.Dot(world - feed.transform.position, camForward) < 0f)
             {
                 if (_image.enabled)
                     _image.enabled = false;

@@ -34,6 +34,7 @@ namespace FPVMod.FpvView
         private static RectTransform? _panelRt;
         private static RawImage? _raw;
         private static FpvGunshipHud? _gunship;
+        private static FpvFsUnitMarkerLayer? _unitMarkers;
         private static Image? _staticOverlay;
         private static Missile? _missile;
         private static bool _active;
@@ -97,6 +98,8 @@ namespace FPVMod.FpvView
                 _overlayGo.SetActive(true);
             _gunship?.SetVisible(true);
             _gunship?.SetTvOverlayEnabled(FpvConfig.FxScanlinesEnabled.Value);
+            _unitMarkers?.SetVisible(true);
+            _unitMarkers?.Bind(FpvControlSession.HeldAircraft, drone);
             _active = true;
 
             FpvLookAroundHud.BindParent(_panelRt);
@@ -138,6 +141,7 @@ namespace FPVMod.FpvView
                     _cam.fieldOfView = _boomFov;
                 SyncDisplayFilter();
                 SampleFeedVelocity();
+                FpvParticleSimBoost.Tick(_cam);
 
                 Vector3 evalPos = _boomLookAt;
                 float policyExp = FpvInfraredPolicy.Evaluate(evalPos);
@@ -157,6 +161,7 @@ namespace FPVMod.FpvView
             ApplyEffectiveFov();
             SyncDisplayFilter();
             SampleFeedVelocity();
+            FpvParticleSimBoost.Tick(_cam);
             if (_cam != null)
                 _preBoomForward = _cam.transform.forward;
 
@@ -168,9 +173,11 @@ namespace FPVMod.FpvView
 
             if (_gunship != null && _cam != null)
             {
+                FpvPanelMetrics panel = FpvPanelMetrics.FromRect(_panelRt);
                 FpvGunshipSnapshot snap = FpvGunshipSnapshot.Build(_missile, _cam.fieldOfView);
-                _gunship.Update(snap, FpvPanelMetrics.FromRect(_panelRt));
+                _gunship.Update(snap, panel);
                 _gunship.SetTvOverlayEnabled(FpvConfig.FxScanlinesEnabled.Value);
+                _unitMarkers?.Update(_cam, panel);
             }
 
             BindDisplayTexture();
@@ -196,6 +203,7 @@ namespace FPVMod.FpvView
             _boomFov = _cam.fieldOfView;
 
             _gunship?.SetVisible(false);
+            _unitMarkers?.SetVisible(false);
             FpvLookAroundHud.DestroyUi();
             FpvFsLookAround.Reset();
             SetLinkStatic(0f);
@@ -245,6 +253,8 @@ namespace FPVMod.FpvView
         {
             _active = false;
             _boomSpectate = false;
+            FpvBoomCam.End();
+            FpvParticleSimBoost.Clear();
             _missile = null;
             if (FpvConfig.ZoomResetOnExit.Value)
                 _magnification = 1f;
@@ -278,6 +288,8 @@ namespace FPVMod.FpvView
             if (_rigGo != null && _rigGo.transform.parent != null)
                 _rigGo.transform.SetParent(null, true);
             _gunship?.SetVisible(false);
+            _unitMarkers?.SetVisible(false);
+            _unitMarkers?.Bind(null, null);
             SetLinkStatic(0f);
             if (_overlayGo != null)
                 _overlayGo.SetActive(false);
@@ -364,28 +376,20 @@ namespace FPVMod.FpvView
             if (_pipelineDriven)
             {
                 urp.renderType = CameraRenderType.Base;
-                urp.renderPostProcessing = false;
+                // PP owned by FpvRenderPrep.Mirror (COLOR/NVG on, IR blit off).
                 _cam.targetTexture = _rt;
                 _cam.enabled = true;
                 return;
             }
 
             urp.renderType = CameraRenderType.Overlay;
-            urp.renderPostProcessing = false;
+            // PP toggled only during ManualRenderFrame.
             _cam.targetTexture = _rt;
             _cam.enabled = true;
         }
 
-        private static void EnsureEffectsCulling(Camera cam)
-        {
-            int mask = cam.cullingMask
-                | (int)PhysicsLayers.EffectsMask
-                | (int)PhysicsLayers.TransparentFXMask
-                | (int)PhysicsLayers.WaterMask
-                | (int)PhysicsLayers.SunMask;
-            if (cam.cullingMask != mask)
-                cam.cullingMask = mask;
-        }
+        private static void EnsureEffectsCulling(Camera cam) =>
+            FpvParticleSimBoost.WidenCulling(cam);
 
         private static void SampleFeedVelocity()
         {
@@ -711,7 +715,7 @@ namespace FPVMod.FpvView
 
         private static void EnsureOverlay()
         {
-            if (_overlayGo != null && _raw != null && _gunship != null && _panelRt != null)
+            if (_overlayGo != null && _raw != null && _gunship != null && _unitMarkers != null && _panelRt != null)
                 return;
 
             if (_overlayGo == null)
@@ -771,6 +775,8 @@ namespace FPVMod.FpvView
 
             if (_gunship == null)
                 _gunship = FpvGunshipHud.Create(_panelRt!);
+            if (_unitMarkers == null)
+                _unitMarkers = FpvFsUnitMarkerLayer.Create(_panelRt!);
 
             _overlayGo!.SetActive(false);
         }

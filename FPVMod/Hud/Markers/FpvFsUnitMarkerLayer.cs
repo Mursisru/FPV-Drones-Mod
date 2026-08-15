@@ -123,7 +123,10 @@ namespace FPVMod.Hud
         {
             FactionHQ? hq = ResolveHq();
             if (hq == null)
+            {
+                FpvPlugin.ModLogger?.LogWarning("FPV FS markers: no HQ for sync");
                 return;
+            }
 
             Sprite? sprite = FpvUnitIconSprite.Get();
             if (sprite == null)
@@ -193,6 +196,8 @@ namespace FPVMod.Hud
             marker.AssessThreat(_ownship);
             _markers.Add(marker);
             _lookup.Add(unit, marker);
+            if (_markers.Count == 1 || (_markers.Count % 25) == 0)
+                FpvPlugin.ModLogger?.LogInfo($"FPV FS markers: {_markers.Count} active");
         }
 
         private void Remove(Unit unit)
